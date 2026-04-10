@@ -41,7 +41,7 @@ voice-triggers:
 | 模式 | 参数 | 行为 |
 |------|------|------|
 | 全自动闭环 | 无参数 | 执行完整 Phase 0 -> Phase 5，自动补写测试直到达标或收敛 |
-| 报告模式 | `report` | 执行 Phase 0 -> Phase 2，输出覆盖率报告，跳过 Phase 3-5 |
+| 报告模式 | `report` | 执行 Phase 0 -> Phase 2，跳过 Phase 3 自动补写，执行 Phase 4 验证 + Phase 5 报告 |
 | 指定模块 | `<module>` | 仅对指定模块执行完整闭环 (如 `feature:login`) |
 
 **模式选择逻辑:**
