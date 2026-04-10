@@ -376,7 +376,9 @@ fi
 export MODULES_JSON="[]"
 if [ -n "$MODULES_RAW" ]; then
   MODS=()
-  while IFS= read -r m; do [ -n "$m" ] && MODS+=("$m"); done <<< "$MODULES_RAW"
+  _old_IFS="$IFS"; IFS=$'\n'
+  for m in $MODULES_RAW; do [ -n "$m" ] && MODS+=("$m"); done
+  IFS="$_old_IFS"
   [ ${#MODS[@]} -gt 0 ] && MODULES_JSON=$(list_to_json "${MODS[@]}")
 fi
 

@@ -1,0 +1,4 @@
+# Force LF line endings for shell and Python scripts
+# Prevents CRLF issues on Windows Git Bash (#!/bin/bash\r)
+*.sh text eol=lf
+*.py text eol=lf

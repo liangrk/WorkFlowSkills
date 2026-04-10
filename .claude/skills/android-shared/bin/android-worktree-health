@@ -73,7 +73,7 @@ if [ -f "$INFO_FILE" ]; then
       [ -f "$p" ] && found=true && break
     done
     if ! $found; then SYNC_ISSUES="${SYNC_ISSUES}#  [sync] $plan_ref -> referenced plan file not found\n"; fi
-  done < <(grep -oP 'docs/plans/[^ )\]]+' "$INFO_FILE" 2>/dev/null || true)
+  done < <(grep -oE 'docs/plans/[^ )\]]+' "$INFO_FILE" 2>/dev/null || true)
 fi
 
 # --- Check 4: Gradle daemon leak ---
@@ -103,10 +103,10 @@ echo "- Orphan branches: $ORPHAN_COUNT"
 echo "- Gradle daemon leaks: $LEAK_COUNT"
 if [ $ISSUE_COUNT -gt 0 ] || [ -n "$SYNC_ISSUES" ]; then
   echo ""; echo "Details:"
-  [ -n "$STALE_DETAILS" ] && echo -e "$STALE_DETAILS"
-  [ -n "$ORPHAN_DETAILS" ] && echo -e "$ORPHAN_DETAILS"
-  [ -n "$LEAK_DETAILS" ] && echo -e "$LEAK_DETAILS"
-  [ -n "$SYNC_ISSUES" ] && echo -e "$SYNC_ISSUES"
+  [ -n "$STALE_DETAILS" ] && printf '%b\n' "$STALE_DETAILS"
+  [ -n "$ORPHAN_DETAILS" ] && printf '%b\n' "$ORPHAN_DETAILS"
+  [ -n "$LEAK_DETAILS" ] && printf '%b\n' "$LEAK_DETAILS"
+  [ -n "$SYNC_ISSUES" ] && printf '%b\n' "$SYNC_ISSUES"
   $CLEANUP && echo "" && echo "Cleanup completed."
 else
   echo ""; echo "All worktrees healthy. No issues found."
