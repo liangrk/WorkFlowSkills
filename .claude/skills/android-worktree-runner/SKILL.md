@@ -426,22 +426,24 @@ bash .claude/skills/android-shared/bin/android-worktree-health --cleanup
 
 选 C: 不执行任何操作，直接进入 Phase 1。
 
-### GRADLE_USER_HOME 隔离
+### Worktree Gradle 策略
 
-当创建新 worktree（Phase 0 步骤 5）时，每个 worktree 应设置独立的
-`GRADLE_USER_HOME` 以避免 daemon 冲突:
+在 worktree 中运行 Gradle 时，多个 worktree 的 daemon 会争抢 `~/.gradle` 中分发文件的锁，
+导致 "Gradle daemon has locked the distribution file" 错误。
+
+**策略: `--no-daemon` + 共享缓存**
+
+在 worktree 中禁用 Gradle daemon，同时保持共享的 `GRADLE_USER_HOME`（依赖缓存不重复下载）:
 
 ```bash
-# 在 worktree 的 local.properties 或环境变量中设置
-export GRADLE_USER_HOME="$WORKTREE_PATH/.gradle"
+# worktree 中的 Gradle 调用统一添加 --no-daemon
+./gradlew <task> --no-daemon
 ```
 
-在 Phase 2 步骤 5 执行 Gradle 验证时，确保使用 worktree 的隔离路径:
-```bash
-GRADLE_USER_HOME="$WORKTREE_PATH/.gradle" ./gradlew assembleDebug
-```
-
-将 `.gradle/` 添加到 worktree 的 `.gitignore`（如果存在）。
+- 无 daemon → 无锁冲突，多 worktree 并发安全
+- 共享 `~/.gradle` → 依赖缓存跨 worktree 共享
+- 代价: 每次 Gradle 调用冷启动多 2-5 秒（相对构建时间可忽略）
+- 仅 skill 在 worktree 中调用时添加，人工调用不加
 
 ---
 
@@ -809,7 +811,7 @@ fi
 ```bash
 # 1. Gradle 构建
 echo "=== Gradle Build ==="
-./gradlew assembleDebug 2>&1
+./gradlew assembleDebug --no-daemon 2>&1
 BUILD_EXIT=$?
 
 if [ $BUILD_EXIT -ne 0 ]; then
@@ -819,12 +821,12 @@ fi
 
 # 2. Lint 检查 (仅在构建通过后执行)
 echo "=== Lint 检查 ==="
-./gradlew lintDebug 2>&1
+./gradlew lintDebug --no-daemon 2>&1
 LINT_EXIT=$?
 
 # 3. 单元测试 (仅在 lint 通过后执行)
 echo "=== 单元测试 ==="
-./gradlew testDebugUnitTest 2>&1
+./gradlew testDebugUnitTest --no-daemon 2>&1
 TEST_EXIT=$?
 ```
 
@@ -1039,10 +1041,11 @@ TASK_BRANCH="wr/${PLAN_SLUG}-task-${TASK_SHORT_ID}"
 git worktree add "$TASK_WORKTREE_PATH" -b "$TASK_BRANCH" "plan/$PLAN_SLUG"
 ```
 
-**设置隔离的 GRADLE_USER_HOME:**
+**Worktree Gradle 策略 (使用 --no-daemon 避免多 worktree daemon 锁冲突):**
 
 ```bash
-export GRADLE_USER_HOME="$TASK_WORKTREE_PATH/.gradle"
+# 无需设置 GRADLE_USER_HOME，使用 --no-daemon 即可
+# 依赖缓存通过共享的 ~/.gradle 自动共享
 ```
 
 **写入 tasks.json (使用原子写入 + 文件锁):**
@@ -1080,12 +1083,11 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
 ## 执行步骤
 
 1. cd 到 <TASK_WORKTREE_PATH>
-2. 设置 GRADLE_USER_HOME="$TASK_WORKTREE_PATH/.gradle"
-3. 按 task.steps 中的步骤逐一执行代码实现
-4. 执行 Android 验证:
-   - GRADLE_USER_HOME="$TASK_WORKTREE_PATH/.gradle" ./gradlew assembleDebug
-   - GRADLE_USER_HOME="$TASK_WORKTREE_PATH/.gradle" ./gradlew lintDebug
-   - GRADLE_USER_HOME="$TASK_WORKTREE_PATH/.gradle" ./gradlew testDebugUnitTest
+2. 按 task.steps 中的步骤逐一执行代码实现
+3. 执行 Android 验证 (使用 --no-daemon 避免多 worktree daemon 锁冲突):
+   - ./gradlew assembleDebug --no-daemon
+   - ./gradlew lintDebug --no-daemon
+   - ./gradlew testDebugUnitTest --no-daemon
 5. 执行 PRD 验证 (若 plan 的 prd 不为 null):
    - 根据任务 title 和 steps 匹配相关验收标准 (AC-N)
    - 验证每条匹配 AC 的实现完整性和测试覆盖
@@ -1108,7 +1110,7 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
 - 只修改与当前任务相关的文件
 - 不要修改其他任务的文件
 - 所有 tasks.json 写入必须使用 android-json-atomic + android-file-lock
-- GRADLE_USER_HOME 必须隔离到 worktree 内
+- 所有 Gradle 调用必须添加 --no-daemon（避免多 worktree daemon 锁冲突）
 ```
 
 **subagent 并发控制:**
@@ -1201,9 +1203,9 @@ done
 
 ```bash
 cd "$WORKTREE_PATH"
-./gradlew assembleDebug
-./gradlew lintDebug
-./gradlew testDebugUnitTest
+./gradlew assembleDebug --no-daemon
+./gradlew lintDebug --no-daemon
+./gradlew testDebugUnitTest --no-daemon
 ```
 
 验证通过后，在 plan 主分支创建合并提交。
@@ -1528,7 +1530,7 @@ Plan 执行完成后，将 operational 发现记录到学习系统以供未来 s
 | 提交失败 (没有变更) | 跳过提交，标记任务完成，备注 "无变更" |
 | Android 验证超时 (>5 分钟) | 询问用户: 继续等待或跳过 |
 | 并行任务间合并冲突 | 暂停合并流程，提示用户手动解决冲突文件，解决后输入继续 |
-| Gradle 守护进程端口冲突 | 每个 worktree 使用隔离的 `GRADLE_USER_HOME`，自动避免冲突 |
+| Gradle daemon 锁冲突 (分发文件) | worktree 中所有 Gradle 调用使用 `--no-daemon`，避免 daemon 锁争抢 |
 | 并行 subagent 中某个失败 | 标记该任务为 `failed`，其他任务继续执行。波次完成后统一报告 |
 | Worktree 创建失败 (并行模式) | 回退到串行模式执行该任务，在 plan 主 worktree 中运行 |
 | 磁盘空间不足 (多个 worktree) | 检测磁盘空间，不足时警告并建议: 减少并行度或清理已有 worktree |
