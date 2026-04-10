@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv \"Z:/ldmnq_project/kskills/.claude/skills/brainstorm\" \"Z:/ldmnq_project/kskills/.claude/skills/android-brainstorm\")",
+      "Bash(mv \"Z:/ldmnq_project/kskills/.claude/skills/worktree-runner\" \"Z:/ldmnq_project/kskills/.claude/skills/android-worktree-runner\")"
+    ]
+  }
+}
