@@ -4,6 +4,21 @@
 # Works on Windows git bash AND Linux. No external dependencies beyond python for JSON.
 set -euo pipefail
 
+# ── Helpers ────────────────────────────────────────────────────────────
+# Portable extraction helper (avoids grep -oP which is unreliable on Windows)
+extract_version() {
+  echo "$1" | grep -o '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' | head -1
+}
+
+extract_quoted_version() {
+  echo "$1" | grep -o '"[0-9][0-9]*\.[0-9][0-9.]*"' | tr -d '"' | head -1
+}
+
+# Extract include modules from stdin (for pipe usage)
+extract_modules_stdin() {
+  sed -n 's/.*include[[:space:]]*(\?[["'\''":]*\([a-zA-Z0-9:_-]*\).*/\1/p' | sed 's/^://' | grep -v '^$'
+}
+
 case "${1:-}" in
   --format) FORMAT="${2:-json}"; shift 2 ;;
   json)     FORMAT="json"; shift ;;
@@ -55,7 +70,7 @@ mods = m.get('modules', [])
 tu = t.get('unit', [])
 print(f\"project_type=android\")
 print(f\"build_system={m.get('build_system', 'unknown')}\")
-print(f\"language=kotlin\")
+print(f\"language={m.get('language', 'kotlin')}\")
 print(f\"kotlin_version={m.get('kotlin_version') or ''}\")
 print(f\"compose_enabled={'true' if d.get('ui',{}).get('compose_enabled') else 'false'}\")
 print(f\"di_framework={d.get('di',{}).get('framework') or ''}\")
@@ -74,6 +89,8 @@ print(f\"has_jacoco={'true' if t.get('coverage') == 'jacoco' else 'false'}\")
     # JSON output: extract relevant subset
     PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
     if [ -n "$PY" ]; then
+      GIT_BRANCH_VAL=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      GIT_REMOTE_VAL=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null | sed 's|^https://||;s|^git@||;s|\.git$||;s|^ssh://git@||' 2>/dev/null || echo "")
       "$PY" -c "
 import json
 with open('$PROFILE_PATH') as f:
@@ -87,7 +104,7 @@ tu = t.get('unit', [])
 data = {
     'project_type': 'android',
     'build_system': m.get('build_system', 'unknown'),
-    'language': 'kotlin',
+    'language': p.get('meta', {}).get('language', 'kotlin'),
     'kotlin_version': m.get('kotlin_version'),
     'compose_enabled': d.get('ui', {}).get('compose_enabled', False),
     'di_framework': d.get('di', {}).get('framework'),
@@ -98,8 +115,8 @@ data = {
     'compile_sdk': m.get('compile_sdk'),
     'test_frameworks': tu,
     'has_jacoco': t.get('coverage') == 'jacoco',
-    'git_branch': '$(git -C \"$PROJECT_ROOT\" rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"\")',
-    'git_remote': '$(git -C \"$PROJECT_ROOT\" remote get-url origin 2>/dev/null | sed \"s|^https://||;s|^git@||;s|\\.git\$||;s|^ssh://git@||\" 2>/dev/null || echo \"\")',
+    'git_branch': '$GIT_BRANCH_VAL',
+    'git_remote': '$GIT_REMOTE_VAL',
     'project_slug': m.get('slug', ''),
     'root_package': m.get('package'),
 }
@@ -140,7 +157,7 @@ safe_grep() {
 safe_grep_rl() {
   local pattern="$1"; shift
   local dir="$1"; shift
-  find "$dir" "$@" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | \
+  find "$dir" "$@" -type f \( -name "*.kt" -o -name "*.java" \) -not -path "*/build/*" 2>/dev/null | \
     xargs grep -rl "$pattern" 2>/dev/null | head -1 || true
 }
 
@@ -166,8 +183,8 @@ fi
 KOTLIN_COUNT=0
 JAVA_COUNT=0
 if [ -d "$PROJECT_ROOT/app/src/main" ]; then
-  KOTLIN_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.kt" -type f 2>/dev/null | wc -l)
-  JAVA_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.java" -type f 2>/dev/null | wc -l)
+  KOTLIN_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.kt" -type f -not -path "*/build/*" 2>/dev/null | wc -l)
+  JAVA_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.java" -type f -not -path "*/build/*" 2>/dev/null | wc -l)
 fi
 if [ "$KOTLIN_COUNT" -gt 0 ] && [ "$JAVA_COUNT" -gt 0 ]; then
   LANGUAGE="kotlin-java"
@@ -183,13 +200,13 @@ fi
 KOTLIN_VERSION=""
 if [ -n "$BUILD_FILES" ]; then
   # Try kotlin("android") or kotlin-android plugin
-  KV=$(safe_grep 'kotlin\("android"\)' $BUILD_FILES 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
+  KV=$(safe_grep 'kotlin\("android"\)' $BUILD_FILES 2>/dev/null | extract_version "$(cat)" | head -1 || true)
   if [ -z "$KV" ]; then
-    KV=$(safe_grep 'kotlinAndroid' $BUILD_FILES 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
+    KV=$(safe_grep 'kotlinAndroid' $BUILD_FILES 2>/dev/null | extract_version "$(cat)" | head -1 || true)
   fi
   # Try version catalog
   if [ -z "$KV" ] && [ -f "$PROJECT_ROOT/gradle/libs.versions.toml" ]; then
-    KV=$(grep -E '^\s*kotlin\s*=' "$PROJECT_ROOT/gradle/libs.versions.toml" 2>/dev/null | grep -oP '"\d+\.\d+\.\d+"' | tr -d '"' | head -1 || true)
+    KV=$(grep -E '^\s*kotlin\s*=' "$PROJECT_ROOT/gradle/libs.versions.toml" 2>/dev/null | { read -r line; extract_quoted_version "$line"; } | head -1 || true)
   fi
   KOTLIN_VERSION="$KV"
 fi
@@ -232,8 +249,7 @@ fi
 # ── Detection: modules ─────────────────────────────────────────────────
 MODULES=""
 if [ -n "$SETTINGS_FILE" ]; then
-  MODULES=$(grep -oP 'include\s*\(?["\x27:]?\K[\w:-]+' "$SETTINGS_FILE" 2>/dev/null | \
-    sed 's/^://g' | tr '\n' ',' | sed 's/,$//' || true)
+  MODULES=$(extract_modules_stdin < "$SETTINGS_FILE" 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)
 fi
 
 # ── Detection: SDK versions ────────────────────────────────────────────
@@ -241,9 +257,9 @@ MIN_SDK=""
 TARGET_SDK=""
 COMPILE_SDK=""
 if [ -n "$BUILD_FILES" ]; then
-  MIN_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'minSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
-  TARGET_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'targetSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
-  COMPILE_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'compileSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+  MIN_SDK=$(echo "$BUILD_FILES" | xargs grep -o 'minSdk[ =]*[0-9]*' 2>/dev/null | grep -o '[0-9]*$' | head -1 || true)
+  TARGET_SDK=$(echo "$BUILD_FILES" | xargs grep -o 'targetSdk[ =]*[0-9]*' 2>/dev/null | grep -o '[0-9]*$' | head -1 || true)
+  COMPILE_SDK=$(echo "$BUILD_FILES" | xargs grep -o 'compileSdk[ =]*[0-9]*' 2>/dev/null | grep -o '[0-9]*$' | head -1 || true)
 fi
 
 # ── Detection: test_frameworks ─────────────────────────────────────────
@@ -281,15 +297,15 @@ ROOT_PACKAGE=""
 # Try AndroidManifest.xml first
 MANIFEST="$PROJECT_ROOT/app/src/main/AndroidManifest.xml"
 if [ -f "$MANIFEST" ]; then
-  ROOT_PACKAGE=$(grep -oP 'package\s*=\s*"\K[^"]+' "$MANIFEST" 2>/dev/null | head -1 || true)
+  ROOT_PACKAGE=$(sed -n 's/.*package[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" 2>/dev/null | head -1 || true)
 fi
 # Fallback: namespace in build.gradle.kts
 if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
-  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'namespace\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs sed -n 's/.*namespace[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' 2>/dev/null | head -1 || true)
 fi
 # Fallback: applicationId
 if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
-  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'applicationId\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs sed -n 's/.*applicationId[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' 2>/dev/null | head -1 || true)
 fi
 # Fallback: first package in kotlin source
 if [ -z "$ROOT_PACKAGE" ] && [ -d "$PROJECT_ROOT/app/src/main/kotlin" ]; then
@@ -358,16 +374,16 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
   else
     # Fallback: manual JSON construction (no python)
     # Convert booleans to lowercase, handle nulls
-    local_di="$DI_FRAMEWORK"
-    local_async="$ASYNC_FRAMEWORK"
-    local_kotlin="$KOTLIN_VERSION"
-    local_git_remote="$GIT_REMOTE"
-    local_root_pkg="$ROOT_PACKAGE"
-    [ -z "$local_di" ] && local_di="null"
-    [ -z "$local_async" ] && local_async="null"
-    [ -z "$local_kotlin" ] && local_kotlin="null"
-    [ -z "$local_git_remote" ] && local_git_remote="null"
-    [ -z "$local_root_pkg" ] && local_root_pkg="null"
+    fb_di="$DI_FRAMEWORK"
+    fb_async="$ASYNC_FRAMEWORK"
+    fb_kotlin="$KOTLIN_VERSION"
+    fb_git_remote="$GIT_REMOTE"
+    fb_root_pkg="$ROOT_PACKAGE"
+    [ -z "$fb_di" ] && fb_di="null"
+    [ -z "$fb_async" ] && fb_async="null"
+    [ -z "$fb_kotlin" ] && fb_kotlin="null"
+    [ -z "$fb_git_remote" ] && fb_git_remote="null"
+    [ -z "$fb_root_pkg" ] && fb_root_pkg="null"
 
     # Build modules JSON array
     MODS_JSON="[]"
@@ -383,29 +399,35 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
         sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/' || echo "[]")
     fi
 
-    local_min_sdk="$MIN_SDK"; [ -z "$local_min_sdk" ] && local_min_sdk="null"
-    local_target_sdk="$TARGET_SDK"; [ -z "$local_target_sdk" ] && local_target_sdk="null"
-    local_compile_sdk="$COMPILE_SDK"; [ -z "$local_compile_sdk" ] && local_compile_sdk="null"
+    fb_min_sdk="$MIN_SDK"; [ -z "$fb_min_sdk" ] && fb_min_sdk="null"
+    fb_target_sdk="$TARGET_SDK"; [ -z "$fb_target_sdk" ] && fb_target_sdk="null"
+    fb_compile_sdk="$COMPILE_SDK"; [ -z "$fb_compile_sdk" ] && fb_compile_sdk="null"
+
+    # Convert boolean values to proper JSON
+    fb_compose="$COMPOSE_ENABLED"
+    [ "$fb_compose" = "true" ] || fb_compose="false"
+    fb_jacoco="$HAS_JACOCO"
+    [ "$fb_jacoco" = "true" ] || fb_jacoco="false"
 
     cat <<ENDJSON
 {
   "project_type": "$PROJECT_TYPE",
   "build_system": "$BUILD_SYSTEM",
   "language": "$LANGUAGE",
-  "kotlin_version": $local_kotlin,
-  "compose_enabled": $COMPOSE_ENABLED,
-  "di_framework": $local_di,
-  "async_framework": $local_async,
+  "kotlin_version": $fb_kotlin,
+  "compose_enabled": $fb_compose,
+  "di_framework": $fb_di,
+  "async_framework": $fb_async,
   "modules": $MODS_JSON,
-  "min_sdk": $local_min_sdk,
-  "target_sdk": $local_target_sdk,
-  "compile_sdk": $local_compile_sdk,
+  "min_sdk": $fb_min_sdk,
+  "target_sdk": $fb_target_sdk,
+  "compile_sdk": $fb_compile_sdk,
   "test_frameworks": $TF_JSON,
-  "has_jacoco": $HAS_JACOCO,
+  "has_jacoco": $fb_jacoco,
   "git_branch": "$GIT_BRANCH",
-  "git_remote": $local_git_remote,
+  "git_remote": $fb_git_remote,
   "project_slug": "$PROJECT_SLUG",
-  "root_package": $local_root_pkg
+  "root_package": $fb_root_pkg
 }
 ENDJSON
   fi

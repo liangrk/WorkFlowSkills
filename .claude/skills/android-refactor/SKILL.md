@@ -219,17 +219,15 @@ Step 3: 简化 LoginActivity.kt，仅保留 UI 逻辑
 | FR-1: 用户登录 | LoginActivity.kt, LoginViewModel.kt | 将被改动 |
 | FR-2: 错误提示 | LoginActivity.kt | 将被改动 |
 
-## Task 1: <标题>
-
-<步骤描述>
-
+### Task 1: <标题>
+- [ ] 步骤 1 描述
+- [ ] 步骤 2 描述
 **验证:** assembleDebug + testDebugUnitTest
 **TDD:** required (如有新类)
 
-## Task 2: <标题>
-
-<步骤描述>
-
+### Task 2: <标题>
+- [ ] 步骤 1 描述
+- [ ] 步骤 2 描述
 **验证:** assembleDebug + testDebugUnitTest
 ```
 
@@ -240,8 +238,10 @@ Step 3: 简化 LoginActivity.kt，仅保留 UI 逻辑
 ### Micro 执行
 
 ```
-Step 1: 创建重构前快照
-  git stash push -m "refactor-savepoint-<slug>" --keep-index 2>/dev/null || true
+Step 1: 创建重构前 savepoint
+  git add -A
+  git commit -m "refactor: savepoint before $SLUG" --no-verify 2>/dev/null || true
+  SAVEPOINT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 Step 2: 执行重构代码变更
 
@@ -250,14 +250,16 @@ Step 3: 运行测试验证
 
 Step 4: 对照需求保护清单 (如有 PRD)
 
-Step 5: 若通过 -> git commit; 若失败 -> git stash pop 回滚
+Step 5: 若通过 -> git commit; 若失败 -> 回滚到 savepoint
 ```
 
 **失败回滚:**
 ```bash
-# 回滚到重构前状态
-git checkout -- .
-git stash pop 2>/dev/null || true
+# 回滚到重构前状态 (变更保留在暂存区)
+if [ -n "$SAVEPOINT" ]; then
+  git reset --soft "$SAVEPOINT"
+  echo "[refactor] 已回滚到重构前状态。变更保留在暂存区 (git diff --cached 查看)。"
+fi
 ```
 
 ### Medium 执行
@@ -425,7 +427,7 @@ bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"android-
 |------|---------|
 | 无 PRD | 降级为测试驱动验证，明确告知用户 |
 | 测试不足 | 强制建议先补测试 (AskUserQuestion) |
-| 重构后测试失败 | 自动回滚到重构前状态 (git stash pop / worktree 删除) |
+| 重构后测试失败 | 自动回滚到重构前状态 (git reset --soft 到 savepoint / worktree 删除) |
 | 需求回归失败 | 暂停，分析原因，用户确认后决定回滚或继续 |
 | worktree 创建失败 | 降级为 Micro scope |
 | Macro plan 导入失败 | 降级为 Medium scope |

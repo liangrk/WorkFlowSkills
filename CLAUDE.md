@@ -17,6 +17,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 | 覆盖率、补测试、夜间测试 | `android-coverage` | "覆盖率"、"coverage"、"补测试"、"夜间测试" |
 | 性能测试、benchmark、启动优化 | `android-benchmark` | "benchmark"、"性能测试"、"启动速度"、"帧率"、"内存分析" |
 | 性能分析、ANR、内存泄漏、卡顿 | `android-performance` | "性能分析"、"ANR"、"内存泄漏"、"启动慢"、"卡顿"、"耗电" |
+| 重构、提取、拆分、迁移、优化结构 | `android-refactor` | "重构"、"提取"、"拆分"、"迁移"、"优化结构" |
 | Bug 排查、调试、crash 分析 | `android-investigate` | "排查 bug"、"调试"、"crash"、"为什么报错" |
 | 保存进度、恢复状态 | `android-checkpoint` | "保存进度"、"恢复"、"checkpoint" |
 | Figma 设计审查 | `android-design-review` | "设计审查"、"Figma"、"设计稿" |

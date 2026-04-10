@@ -55,8 +55,10 @@ fi
 PROFILE_PATH="$PROJECT_ROOT/.android-project-profile.json"
 if [ -f "$PROFILE_PATH" ] && [ "${1:-}" != "--force" ]; then
   # 显示档案年龄
-  PROFILE_AGE=$(( $(date +%s) - $(stat -c %Y "$PROFILE_PATH" 2>/dev/null || stat -f %m "$PROFILE_PATH" 2>/dev/null || echo 0) ))
-  PROFILE_DAYS=$(( PROFILE_AGE / 86400 ))
+  PROFILE_AGE_SECONDS=$(python3 -c "import os,time; print(int(time.time()-os.path.getmtime('$PROFILE_PATH')))" 2>/dev/null \
+    || python -c "import os,time; print(int(time.time()-os.path.getmtime('$PROFILE_PATH')))" 2>/dev/null \
+    || echo "0")
+  PROFILE_AGE_DAYS=$(( PROFILE_AGE_SECONDS / 86400 ))
 
   echo "=== 已有项目档案 ==="
   echo "档案路径: $PROFILE_PATH"

@@ -362,68 +362,128 @@ find "$PROJECT_ROOT/.claude" -name "tasks.json" 2>/dev/null | head -5
 
 ```bash
 # 空指针风险: !! 操作符
-grep -n '!!' $CODE_CHANGES 2>/dev/null
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -n '!!' "$f" 2>/dev/null || true
+  done
+fi
 
 # 空的 catch 块
-grep -n 'catch.*{ *}' $CODE_CHANGES 2>/dev/null
-grep -nA2 'catch' $CODE_CHANGES 2>/dev/null | grep '{ *}$'
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -n 'catch.*{ *}' "$f" 2>/dev/null || true
+  done
+fi
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -nA2 'catch' "$f" 2>/dev/null | grep '{ *}$' || true
+  done
+fi
 
 # TODO/FIXME 标记
-grep -rn 'TODO\|FIXME\|HACK\|XXX' $CODE_CHANGES 2>/dev/null
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -rn 'TODO\|FIXME\|HACK\|XXX' "$f" 2>/dev/null || true
+  done
+fi
 
 # 硬编码字符串 (UI 层中)
-grep -n '"[^"]*"' $CODE_CHANGES 2>/dev/null | grep -v '@StringRes\|R\.string\|//\|Log\.\|TAG\|"$\|\.class'
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -n '"[^"]*"' "$f" 2>/dev/null | grep -v '@StringRes\|R\.string\|//\|Log\.\|TAG\|"$\|\.class' || true
+  done
+fi
 
 # 主线程网络调用
-grep -n 'Dispatchers\.Main' $CODE_CHANGES 2>/dev/null | grep -i 'http\|retrofit\|okhttp\|request\|api'
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -n 'Dispatchers\.Main' "$f" 2>/dev/null | grep -i 'http\|retrofit\|okhttp\|request\|api' || true
+  done
+fi
 ```
 
 #### 1.2 资源完整性检查
 
 ```bash
 # 提取代码中引用的所有资源 ID
-grep -ohP 'R\.\w+\.\w+' $CODE_CHANGES 2>/dev/null | sort -u
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'R\.\w+\.\w+' "$f" 2>/dev/null || true
+  done | sort -u
+fi
 
 # 提取 XML 中引用的所有资源
-grep -ohP '@\w+/[\w.]+' $RESOURCE_CHANGES 2>/dev/null | sort -u
+if [ -n "$RESOURCE_CHANGES" ]; then
+  echo "$RESOURCE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP '@\w+/[\w.]+' "$f" 2>/dev/null || true
+  done | sort -u
+fi
 
 # 检查 drawable 引用是否存在
-for ref in $(grep -ohP 'R\.drawable\.\w+' $CODE_CHANGES 2>/dev/null | sed 's/R\.drawable\.//'); do
-  find "$PROJECT_ROOT" -path "*/res/drawable*/$ref.*" 2>/dev/null | head -1 || echo "MISSING: drawable/$ref"
-done
+if [ -n "$CODE_CHANGES" ]; then
+  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'R\.drawable\.\w+' "$f" 2>/dev/null || true
+  done | sed 's/R\.drawable\.//' | sort -u); do
+    find "$PROJECT_ROOT" -path "*/res/drawable*/$ref.*" 2>/dev/null | head -1 || echo "MISSING: drawable/$ref"
+  done
+fi
 
 # 检查 string 引用是否存在
-for ref in $(grep -ohP 'R\.string\.\w+' $CODE_CHANGES 2>/dev/null | sed 's/R\.string\.//'); do
-  grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/strings.xml 2>/dev/null || echo "MISSING: string/$ref"
-done
+if [ -n "$CODE_CHANGES" ]; then
+  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'R\.string\.\w+' "$f" 2>/dev/null || true
+  done | sed 's/R\.string\.//' | sort -u); do
+    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/strings.xml 2>/dev/null || echo "MISSING: string/$ref"
+  done
+fi
 
 # 检查 dimen 引用是否存在
-for ref in $(grep -ohP 'R\.dimen\.\w+' $CODE_CHANGES 2>/dev/null | sed 's/R\.dimen\.//'); do
-  grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/dimens.xml 2>/dev/null || echo "MISSING: dimen/$ref"
-done
+if [ -n "$CODE_CHANGES" ]; then
+  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'R\.dimen\.\w+' "$f" 2>/dev/null || true
+  done | sed 's/R\.dimen\.//' | sort -u); do
+    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/dimens.xml 2>/dev/null || echo "MISSING: dimen/$ref"
+  done
+fi
 
 # 检查 color 引用是否存在
-for ref in $(grep -ohP 'R\.color\.\w+' $CODE_CHANGES 2>/dev/null | sed 's/R\.color\.//'); do
-  grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/colors.xml 2>/dev/null || echo "MISSING: color/$ref"
-done
+if [ -n "$CODE_CHANGES" ]; then
+  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'R\.color\.\w+' "$f" 2>/dev/null || true
+  done | sed 's/R\.color\.//' | sort -u); do
+    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/colors.xml 2>/dev/null || echo "MISSING: color/$ref"
+  done
+fi
 ```
 
 #### 1.3 Manifest 检查
 
 ```bash
 # 提取变更代码中定义的 Activity 类
-grep -rn 'class.*Activity' $CODE_CHANGES 2>/dev/null | grep -v test
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -rn 'class.*Activity' "$f" 2>/dev/null || true
+  done | grep -v test
+fi
 
 # 检查这些 Activity 是否在 AndroidManifest.xml 中声明
-for activity_class in $(grep -ohP 'class (\w+\.)*\w+Activity' $CODE_CHANGES 2>/dev/null | sed 's/class //'); do
-  # 提取简单类名或全限定名
-  simple_name=$(echo "$activity_class" | awk -F'.' '{print $NF}')
-  grep -rq "$simple_name\|$activity_class" "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null \
-    || echo "NOT_DECLARED: $activity_class"
-done
+if [ -n "$CODE_CHANGES" ]; then
+  for activity_class in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -ohP 'class (\w+\.)*\w+Activity' "$f" 2>/dev/null || true
+  done | sed 's/class //' | sort -u); do
+    # 提取简单类名或全限定名
+    simple_name=$(echo "$activity_class" | awk -F'.' '{print $NF}')
+    grep -rq "$simple_name\|$activity_class" "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null \
+      || echo "NOT_DECLARED: $activity_class"
+  done
+fi
 
 # 提取 Service / Receiver / Provider
-grep -rn 'class.*Service\b\|class.*Receiver\b\|class.*Provider\b' $CODE_CHANGES 2>/dev/null | grep -v test
+if [ -n "$CODE_CHANGES" ]; then
+  echo "$CODE_CHANGES" | while IFS= read -r f; do
+    [ -f "$f" ] && grep -rn 'class.*Service\b\|class.*Receiver\b\|class.*Provider\b' "$f" 2>/dev/null || true
+  done | grep -v test
+fi
 
 # 检查新增的权限是否合理
 git diff "$BASE_BRANCH"...HEAD -- "**/AndroidManifest.xml" 2>/dev/null | grep 'uses-permission'
@@ -1076,6 +1136,12 @@ grep -r "<排除项关键词>" app/src/main --include="*.kt" 2>/dev/null
 | 严重 | 🟠 | 主要功能异常、数据丢失风险 | 强烈建议修复 |
 | 一般 | 🟡 | 可用但有问题、UX 受影响 | 建议修复 |
 | 提示 | 🟢 | 代码质量、最佳实践、优化建议 | 后续处理 |
+
+> 与其他 skill 保持一致的严重程度映射:
+> 🔴 red/BLOCKER → [BLOCKER] 必须修复
+> 🟠 orange/SEVERE → [WARNING] 建议修复
+> 🟡 yellow/MODERATE → [INFO] 建议优化
+> 🟢 green/TIP → [TIP] 可选改进
 
 ### 步骤 2: 生成 Bug 报告
 

@@ -99,6 +99,39 @@ adb devices 2>/dev/null | head -5 || echo "ADB_NOT_AVAILABLE"
 ./gradlew --version 2>/dev/null | head -3 || echo "GRADLE_NOT_AVAILABLE"
 ```
 
+### 包名检测
+
+在执行 adb 命令前，先检测包名:
+```bash
+# From AndroidManifest.xml
+PACKAGE=$(grep 'package=' app/src/main/AndroidManifest.xml 2>/dev/null | head -1 | sed 's/.*package="//;s/".*//')
+
+# Or from build.gradle
+if [ -z "$PACKAGE" ]; then
+  PACKAGE=$(grep 'applicationId' app/build.gradle* 2>/dev/null | head -1 | sed 's/.*"//;s/".*//')
+fi
+
+# Or from namespace (AGP 8.0+)
+if [ -z "$PACKAGE" ]; then
+  PACKAGE=$(grep 'namespace' app/build.gradle* 2>/dev/null | head -1 | sed 's/.*"//;s/".*//')
+fi
+
+if [ -n "$PACKAGE" ]; then
+  echo "PACKAGE: $PACKAGE"
+else
+  echo "PACKAGE: NOT_DETECTED (adb 命令将跳过或需要手动指定)"
+fi
+```
+
+所有后续 adb 命令中使用检测到的 `$PACKAGE` 变量。
+
+检测 launcher activity (有设备时):
+```bash
+if [ -n "$PACKAGE" ]; then
+  adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $PACKAGE 2>/dev/null || echo "LAUNCHER_NOT_DETECTED"
+fi
+```
+
 根据环境检测结果确定分析模式:
 - **有设备:** 使用 adb 实时采集数据 + 静态分析
 - **无设备:** 仅使用静态代码分析，报告中标注 "无设备，仅静态分析"
@@ -130,7 +163,7 @@ grep -rn "getWritableDatabase\|getReadableDatabase\|query(" app/src/main --inclu
 
 ```bash
 # 内存概况
-adb shell dumpsys meminfo <package> 2>/dev/null | head -30 || echo "MEMINFO_UNAVAILABLE"
+adb shell dumpsys meminfo $PACKAGE 2>/dev/null | head -30 || echo "MEMINFO_UNAVAILABLE"
 
 # 检查 LeakCanary 集成
 grep -r "leakcanary" app/build.gradle* 2>/dev/null || echo "LEAKCANARY_NOT_FOUND"
@@ -152,7 +185,8 @@ grep -rn "GlobalScope\|CoroutineScope\|viewModelScope\|lifecycleScope" app/src/m
 
 ```bash
 # 测量启动时间 (有设备时)
-adb shell am start-activity -W -n <package>/<activity> 2>&1 || echo "START_MEASURE_UNAVAILABLE"
+# 使用检测到的包名和 launcher activity
+adb shell am start-activity -W -n $PACKAGE/$(adb shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $PACKAGE 2>/dev/null | tail -1) 2>&1 || echo "START_MEASURE_UNAVAILABLE"
 
 # Application.onCreate 重操作
 grep -rn "class.*Application" app/src/main --include="*.kt" -A 30 | head -50

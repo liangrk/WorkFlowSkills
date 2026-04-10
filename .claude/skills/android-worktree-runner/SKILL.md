@@ -1094,13 +1094,13 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
 6. 验证通过后提交:
    git add -A
    git commit -m "feat(<plan-slug>): complete task <task-num> - <task-title>"
-6. 更新 tasks.json (必须使用原子写入 + 文件锁):
+7. 更新 tasks.json (必须使用原子写入 + 文件锁):
    - status → completed
    - commit → commit hash
    - verification → all true
    - timestamps.completed → 当前时间
    - prd_notes → PRD 验证备注 (如有 ✗ 项，否则 null)
-7. 如果验证失败，更新 tasks.json:
+8. 如果验证失败，更新 tasks.json:
    - status → failed
    - 在 commit 字段中记录错误摘要
 

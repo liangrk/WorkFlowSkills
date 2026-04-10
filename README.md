@@ -73,6 +73,7 @@
 | `android-benchmark` | 性能测试 | Worktree 隔离性能分析: 冷启动/帧率/内存，默认报告模式，`--auto` 全自动闭环 | `/android-benchmark` |
 | `android-performance` | 性能分析 | ANR/内存泄漏/卡顿/耗电等运行时性能问题排查 | `/android-performance <问题描述>` |
 | `android-investigate` | 调试 | 系统化 bug 排查 (四层分析: 表现→数据→逻辑→平台) | `/android-investigate <问题描述>` |
+| `android-refactor` | 重构 | PRD 锚定重构，三档 scope 自动检测 (micro/medium/macro) | `/android-refactor <目标描述>` |
 | `android-ship` | 交付 | 范围漂移检测、验证、提交、推送、创建 PR | `/android-ship` |
 | `android-learn` | 学习记录 | 跨 session 知识积累、搜索、清理 | `/android-learn [search|add|prune|stats]` |
 | `android-document-release` | 收尾 | 文档同步更新 (README/CHANGELOG/CLAUDE.md) | `/android-document-release` |
@@ -226,13 +227,14 @@
 /android-code-review feature/login
 ```
 
-六维度审查 (每个维度派发独立 subagent):
+七维度审查 (架构、命名、生命周期、线程、Android特有、可测试性、安全):
 1. 架构一致性 (模块依赖方向、分层、DI)
 2. 命名与代码风格 (项目规范、Kotlin 惯例)
 3. 生命周期与内存安全 (Context 泄漏、Listener、Coroutine scope)
 4. 线程与并发 (主线程 IO、UI 线程安全、Compose 重组)
 5. Android 特有 (资源泄漏、Bitmap、数据库事务、权限)
 6. 可测试性 (依赖可 mock、硬编码检测)
+7. 安全 (敏感数据、权限、网络安全、ProGuard)
 
 产出: `docs/reviews/<branch>-code-review.md`
 
@@ -244,10 +246,13 @@
 /android-qa regression
 ```
 
-三层测试:
+六层覆盖 (静态分析、构建测试、性能基准、无障碍、设备测试、PRD验收):
 1. **静态分析** (无需设备): 代码模式、资源完整性、Manifest、ProGuard
 2. **构建+单元测试** (无需设备): assembleDebug、lintDebug、testDebugUnitTest
-3. **设备测试** (需要 adb): 安装 APK、运行 UI 验证
+3. **性能基准** (无需设备): 关键性能指标回归检测
+4. **无障碍检查** (无需设备): a11y 合规性扫描
+5. **设备测试** (需要 adb): 安装 APK、运行 UI 验证
+6. **PRD 验收** (逻辑层): 对照验收标准逐条验证需求覆盖度
 
 包含修复循环: 发现 bug 后自动修复 → 重新验证，最多 3 轮。
 
