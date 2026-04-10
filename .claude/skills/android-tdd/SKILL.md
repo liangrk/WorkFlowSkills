@@ -1388,3 +1388,44 @@ android-qa (后续验证，读取 TDD 结果)
 | 修复循环 4 轮后仍失败 | 恢复到 TDD 前状态 (`git stash pop` 恢复 savepoint)，输出完整诊断报告。已通过的测试和实现代码保留在工作区供用户参考 |
 | 用户中断修复循环 | 保存当前状态，记录到 tasks.json |
 | worktree-runner 未找到 tasks.json | 以独立模式运行，不更新 TDD 状态 |
+| Gradle 依赖拉取失败 (网络问题) | 切换到阿里云镜像后重试 (见下方 Gradle 网络回退策略) |
+
+### Gradle 网络回退策略
+
+当运行 `./gradlew` 命令时，如果遇到 AGP 或其他依赖因网络问题无法拉取的错误
+（如 `Connection timed out`、`Unable to resolve`、`Could not GET` 等），自动切换到阿里云镜像:
+
+1. **检测到网络拉取失败后**，在项目根目录的 `settings.gradle` 或 `settings.gradle.kts` 中
+   配置阿里云 Maven 镜像:
+
+   **settings.gradle.kts:**
+   ```kotlin
+   dependencyResolutionManagement {
+       repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+       repositories {
+           maven { url = uri("https://maven.aliyun.com/repository/google") }
+           maven { url = uri("https://maven.aliyun.com/repository/central") }
+           maven { url = uri("https://maven.aliyun.com/repository/public") }
+           google()
+           mavenCentral()
+       }
+   }
+   ```
+
+   **settings.gradle (Groovy):**
+   ```groovy
+   dependencyResolutionManagement {
+       repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+       repositories {
+           maven { url 'https://maven.aliyun.com/repository/google' }
+           maven { url 'https://maven.aliyun.com/repository/central' }
+           maven { url 'https://maven.aliyun.com/repository/public' }
+           google()
+           mavenCentral()
+       }
+   }
+   ```
+
+2. 阿里云镜像仓库放在 `google()` 和 `mavenCentral()` **之前**，确保优先从镜像拉取。
+3. 配置完成后重新运行失败的 Gradle 命令。
+4. **注意:** 仅在检测到网络拉取失败时才添加镜像配置，不要主动修改用户已有的仓库配置。
