@@ -393,7 +393,10 @@ worktree 根目录执行。
    - tdd.report_path = <报告文件路径>
    - tdd.boundary_categories_covered = <报告中已覆盖的边界类别>
 
-4. 如果 TDD PASS: 继续步骤 4
+4. 如果 TDD PASS: 检查 TDD 报告中的实现文件列表:
+   - 如果 TDD Phase 3 已实现该任务的核心逻辑 → 跳过步骤 4 中已实现的步骤，仅执行 TDD 未覆盖的步骤 (如资源文件、Manifest 配置等)
+   - 如果 TDD 仅写了测试未实现 → 正常执行步骤 4
+   - 判断方法: 读取 TDD 报告中的 "## 实现文件" 章节，与 plan 步骤中涉及的文件做交集
 5. 如果 TDD FAIL: 使用 AskUserQuestion 询问用户如何处理
 
 **如果选择 B (用户跳过 TDD):**
@@ -587,6 +590,28 @@ AskUserQuestion:
   android-autoplan 重新审查。流程:
   1. 从 `plan_source.ref` 获取原始 plan 文件名 (如 `2026-04-10-auth.md`)
   2. 将问题写入 `docs/plans/<plan-filename>-execution-issues.md`
+
+**execution-issues 文件格式:**
+
+```markdown
+# 执行问题报告: <plan-slug>
+
+## 概要
+- 执行任务数: X/Y
+- 失败任务: Z
+
+## 失败任务详情
+
+### Task N: <title>
+**错误类型:** build_error / test_failure / dependency_missing / instruction_unclear
+**错误信息:**
+\`\`\`
+<完整错误输出>
+\`\`\`
+**已尝试的修复:** <描述>
+**建议:** <建议 autoplan 如何调整 plan>
+```
+
   3. 使用 Skill 工具调用 android-autoplan:
      skill: "android-autoplan", args: "review docs/plans/<plan-filename>.md"
   4. autoplan 的 review 模式会自动查找同名

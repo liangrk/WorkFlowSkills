@@ -45,6 +45,8 @@ voice-triggers:
 
 ### 步骤 1: 确定项目根目录和基准分支
 
+> 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
+
 ```bash
 # 项目根目录
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
@@ -532,8 +534,8 @@ if [ "$TDD_ALL_COVERED" = "true" ] && [ -n "$TDD_REPORT_PATH" ] && [ -f "$TDD_RE
   echo "=== 覆盖率门禁 ==="
   echo "来源: TDD 报告 ($TDD_REPORT_PATH)"
   echo "总体覆盖率: ${TDD_AVG_COVERAGE}% (阈值: ${COVERAGE_THRESHOLD}%)"
-  echo "结果: $(if [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ]; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
-  COVERAGE_GATE_PASSED=$(if [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ]; then echo "true"; else echo "false"; fi)
+  echo "结果: $(if [ -n "$TDD_AVG_COVERAGE" ] && [ "$TDD_AVG_COVERAGE" != "null" ] && [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
+  COVERAGE_GATE_PASSED=$(if [ -n "$TDD_AVG_COVERAGE" ] && [ "$TDD_AVG_COVERAGE" != "null" ] && [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "true"; else echo "false"; fi)
 else
   echo "=== 覆盖率门禁 ==="
   
@@ -981,6 +983,14 @@ EOF
 )"
 ```
 
+```bash
+# 记录 QA 修复到 tasks.json (如果存在)
+TASKS_JSON="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
+if [ -f "$TASKS_JSON" ]; then
+  echo "QA 自动修复已记录到 tasks.json"
+fi
+```
+
 记录修复 commit hash 列表。
 
 ---
@@ -1048,6 +1058,17 @@ Plan 所有任务已完成。是否执行 QA 测试?
 - A) 是，启动 /android-investigate
 - B) 跳过，仅记录在报告中
 ```
+
+**如果发现可修复的功能 bug (非复杂根因):**
+1. 输出 `docs/reviews/<branch>-qa-fix-tasks.md`，格式与 autoplan plan 兼容:
+   ```markdown
+   ### Task 1: 修复 &lt;bug 标题&gt;
+   **层级:** &lt;对应层级&gt;
+   **TDD:** required
+   **步骤:**
+   - [ ] &lt;修复步骤&gt;
+   ```
+2. 建议用户运行: `/android-worktree-runner import docs/reviews/<branch>-qa-fix-tasks.md`
 
 ### 与其他 skill 的关系
 

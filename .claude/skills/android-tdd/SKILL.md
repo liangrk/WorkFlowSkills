@@ -644,6 +644,17 @@ Instrumented 测试: N written, N skipped (无设备)
 
 写刚好让 Phase 2 所有测试通过的最少代码。
 
+**在实现代码前，保存当前工作区状态 (savepoint):**
+
+```bash
+# 保存 TDD 前状态，便于失败时回滚
+git add -A 2>/dev/null || true
+git stash push -m "tdd-savepoint-before-green" --keep-index 2>/dev/null || true
+echo "TDD savepoint created"
+```
+
+> 如果后续 Phase 5 或 Phase 6 失败，可以执行 `git stash pop` 恢复到此状态。
+
 ### 步骤 1: 实现契约
 
 根据 Phase 1 定义的接口，编写最小实现:
@@ -1243,6 +1254,6 @@ android-qa (后续验证，读取 TDD 结果)
 | Gradle 不可用 | 报错: "gradlew 未找到或不可执行" |
 | JaCoCo 未配置 | 提示配置 JaCoCo，使用测试通过率替代 |
 | 无设备/模拟器 | 跳过 Instrumented 测试，记录受影响测试 |
-| 修复循环 4 轮后仍失败 | 停止 TDD，输出完整诊断报告 |
+| 修复循环 4 轮后仍失败 | 恢复到 TDD 前状态 (`git stash pop` 恢复 savepoint)，输出完整诊断报告。已通过的测试和实现代码保留在工作区供用户参考 |
 | 用户中断修复循环 | 保存当前状态，记录到 tasks.json |
 | worktree-runner 未找到 tasks.json | 以独立模式运行，不更新 TDD 状态 |

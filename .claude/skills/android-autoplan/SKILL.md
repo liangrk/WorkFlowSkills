@@ -41,6 +41,7 @@ voice-triggers:
      如果 plan 文件为 `docs/plans/2026-04-10-auth.md`，
      查找 `docs/plans/2026-04-10-auth-execution-issues.md`
   3. 如果找到: 将 execution-issues 作为额外输入贯穿所有审查阶段
+     （按 android-worktree-runner 定义的 execution-issues 格式解析: 包含 "## 概要" 和 "### Task N:" 结构）
   4. 如果未找到: 正常执行 review 流程
 
 **零外部依赖:** 此 skill 不依赖 gstack 二进制工具链、Codex、browse、design。
@@ -51,6 +52,8 @@ voice-triggers:
 在所有流程开始前，自动检测项目环境。检测结果贯穿后续所有审查阶段。
 
 ### 步骤 1: 确认项目根目录
+
+> 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
 
 ```bash
 # 从当前目录向上查找项目根 (含 build.gradle 或 settings.gradle)
@@ -319,6 +322,8 @@ ProGuard: app/proguard-rules.pro
 
 **规则: 除基础设施和测试层外，所有任务 TDD = required。不可协商。**
 
+> 💾 **[检查点]** Plan 初版已生成。建议运行 `/android-checkpoint save` 保存进度，防止上下文丢失。
+
 使用 AskUserQuestion 确认:
 > 已生成 N 个任务。是否需要调整?
 > - A) 确认，进入审查
@@ -381,6 +386,8 @@ ProGuard: app/proguard-rules.pro
 - 标记被砍掉的任务 (移到 "延后考虑" 部分)
 - 添加平台约束说明到受影响的任务
 - 添加复用已有代码的说明
+
+> 💾 **[检查点]** CEO Review 已完成。建议运行 `/android-checkpoint save` 保存进度。
 
 ---
 
@@ -640,6 +647,8 @@ Plan 文件: <路径>
 **如果存在阻塞问题:** 使用 AskUserQuestion 展示阻塞问题并询问处理方式。
 **如果没有阻塞问题:** 直接进入 Phase 5。
 
+> 💾 **[检查点]** 工程审查已完成。建议运行 `/android-checkpoint save` 保存进度。
+
 ---
 
 ## Phase 5: Android DX Review (开发者体验 — Subagent 模式)
@@ -815,6 +824,8 @@ Plan: <功能标题>
 - Plan: docs/plans/<slug>.md
 - 测试计划: docs/plans/<slug>-test-plan.md
 ```
+
+> 💾 **[检查点]** 即将进入执行阶段。建议运行 `/android-checkpoint save` 保存进度。
 
 使用 AskUserQuestion:
 > 审查完成。如何处理?

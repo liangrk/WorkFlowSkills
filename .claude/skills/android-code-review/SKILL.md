@@ -44,6 +44,8 @@ voice-triggers:
 
 ### 步骤 1: 确认项目根目录和 git 状态
 
+> 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
+
 ```bash
 # 确认项目根目录
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
