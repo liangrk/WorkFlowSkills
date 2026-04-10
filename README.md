@@ -6,21 +6,20 @@
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌──────────────────┐
-│ brainstorm │───▶│  autoplan   │───▶│ design-review    │    │ worktree-runner │
+│ brainstorm │───▶│  autoplan   │───▶│ design-review    │───▶│ worktree-runner │
 │  需求定义   │    │  拆分+审查  │    │  Figma 审查(按需)  │    │   任务执行       │
 └─────────────┘    └──────────────┘    └───────────────────┘    └──────┬─────────┘
        │                                      │                        │
        ▼                                      ▼                        ▼
 ┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌───────┴──────┐
-│ checkpoint │    │  code-review│    │  investigate │    │ doc-release  │
-│  保存/恢复  │    │  代码审查    │    │  调试排查   │    │  文档更新    │
-└─────────────┘    └──────────────┘    └─────────────┘    └──────────────┘
-       │                                      │
-       ▼                                      ▼
-┌─────────────┐    ┌──────────────┐
-│    qa      │    │  反馈回路   │
-│  功能测试   │◀───▶│  runner→plan │
-└─────────────┘    └──────────────┘
+│ checkpoint │    │  code-review│    │  investigate │    │   android-tdd  │
+│  保存/恢复  │    │  代码审查    │    │  调试排查   │    │ 测试先行(每任务)│
+       │                                      │                    ▲    │
+       ▼                                      ▼                    │    ▼
+┌─────────────┐    ┌──────────────┐                    ┌──────────────┐
+│    qa      │    │  反馈回路   │                    │  doc-release │
+│  功能测试   │◀───▶│  runner→plan │                    │  文档更新     │
+└─────────────┘    └──────────────┘                    └──────────────┘
 ```
 
 ## Skill 列表
@@ -30,6 +29,7 @@
 | `android-brainstorm` | 需求定义 | 头脑风暴、需求分析、方案探索 | `/android-brainstorm` |
 | `android-checkpoint` | 持续化 | 保存/恢复 autoplan 会话状态，防止 /clear 丢失上下文 | `/android-checkpoint save` / `restore` |
 | `android-autoplan` | 规划 | 需求拆分、四层审查、自省，产出可执行 plan | `/android-autoplan <需求>` |
+| `android-tdd` | 测试先行驱动 | TDD 流程 (RED/GREEN/REFACTOR)、覆盖率门禁 (80%/90%)、自动修复循环 (3+1) | `/android-tdd <功能描述>` |
 | `android-design-review` | 审查 | Figma 设计稿审查，产出设计规格 (按需) | `/android-design-review <figma-url>` |
 | `android-worktree-runner` | 执行 | 基于 git worktree 隔离执行 plan 任务，每任务自动验证 | `/android-worktree-runner` |
 | `android-code-review` | 审查 | 代码质量审查 (架构、命名、生命周期、线程安全等) | `/android-code-review` |
@@ -280,6 +280,7 @@ autoplan 在关键节点自动保存检查点:
 │   └── skills/
 │       ├── android-brainstorm/SKILL.md
 │       ├── android-autoplan/SKILL.md
+│       ├── android-tdd/SKILL.md
 │       ├── android-design-review/SKILL.md
 │       ├── android-worktree-runner/SKILL.md
 │       ├── android-code-review/SKILL.md

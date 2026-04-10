@@ -140,6 +140,68 @@ fi
 
 如果 Gradle 不可用: 中断执行，提示用户检查项目配置。
 
+### 步骤 5: 检测 TDD 执行状态
+
+```bash
+# 定位 tasks.json
+MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
+
+if [ -f "$TASKS_FILE" ]; then
+  echo "TASKS_JSON_FOUND: $TASKS_FILE"
+else
+  echo "NO_TASKS_JSON"
+fi
+```
+
+**TDD 状态分析:**
+
+读取 tasks.json，统计 TDD 执行情况:
+
+1. 遍历当前 plan 的所有任务
+2. 统计 tdd.executed = true 的任务数
+3. 统计 tdd.skipped = true 的任务数 (特别是业务任务)
+4. 计算 tdd.coverage_percent 的平均值
+5. 收集 tdd.boundary_categories_covered
+6. 读取 tdd.report_path
+
+**产出 TDD 状态摘要:**
+
+```
+=== TDD 状态 ===
+状态: 已检测 / 未检测
+TDD 已执行: N/M 任务
+TDD 跳过: N 任务
+TDD 覆盖率: 平均 XX% (范围: XX%-XX%)
+TDD 报告: <path> 或 "无"
+```
+
+**未检测到 TDD 记录时:**
+```
+=== TDD 状态 ===
+未检测到 TDD 执行记录 — QA 将执行完整验证 (含覆盖率门禁)
+```
+
+**TDD 被跳过的业务任务警告:**
+```
+⚠️ 检测到 N 个业务任务跳过了 TDD:
+  - Task 3: LoginViewModel (原因: user_override)
+  - Task 5: UserProfileScreen (原因: user_override)
+
+QA 将对这些任务加强验证:
+  - 强制执行 Layer 2.3 (单元测试)
+  - 覆盖率阈值提升至 90% (而非默认 80%)
+  - 执行完整的边界矩阵检查
+```
+
+根据检测结果设置以下变量供后续阶段使用:
+- `TDD_STATUS`: "detected" / "not_detected"
+- `TDD_ALL_COVERED`: "true" / "false" (所有业务任务 TDD 已执行且覆盖率 >= 80%)
+- `TDD_AVG_COVERAGE`: 平均覆盖率数字
+- `TDD_REPORT_PATH`: 报告文件路径
+- `TDD_SKIPPED_BUSINESS_TASKS`: 被跳过的业务任务数
+- `COVERAGE_THRESHOLD`: 80 (默认) 或 90 (有 TDD 被跳过的业务任务时)
+
 ---
 
 ## Phase 1: 测试范围确定
@@ -407,13 +469,37 @@ fi
 | Warning | 🟢 记录，建议后续处理 |
 | Information | 忽略 |
 
-#### 2.3 单元测试
+#### 2.3 单元测试 (条件执行)
+
+**根据 TDD 状态决定是否执行。**
 
 ```bash
-echo "=== 单元测试 ==="
-./gradlew testDebugUnitTest 2>&1
-TEST_EXIT=$?
+if [ "$TDD_ALL_COVERED" = "true" ]; then
+  echo "=== 单元测试 ==="
+  echo "跳过: TDD 已执行且覆盖率达标 (平均 ${TDD_AVG_COVERAGE}%)"
+  echo "来源: ${TDD_REPORT_PATH}"
+  TEST_EXIT=0
+elif [ "$TDD_STATUS" = "detected" ]; then
+  echo "=== 单元测试 ==="
+  echo "执行: TDD 已执行但部分任务覆盖率 < 80%，补充验证"
+  ./gradlew testDebugUnitTest 2>&1
+  TEST_EXIT=$?
+else
+  echo "=== 单元测试 ==="
+  echo "执行: 未检测到 TDD 记录，完整验证"
+  ./gradlew testDebugUnitTest 2>&1
+  TEST_EXIT=$?
+fi
 ```
+
+**条件执行规则:**
+
+| TDD 状态 | Layer 2.3 行为 |
+|---------|---------------|
+| 所有业务任务 TDD 已执行 且 覆盖率 >= 80% | 跳过，复用 TDD 结果 |
+| TDD 已执行 但 部分任务覆盖率 < 80% | 执行，重点关注低覆盖率模块 |
+| TDD 未执行 (无 tasks.json) | 执行 (完整验证) |
+| 业务任务 TDD 被用户跳过 | 强制执行，覆盖率阈值提升至 90% |
 
 **解析测试结果:**
 ```bash
@@ -436,6 +522,80 @@ fi
 - 与本次变更无关的测试失败 → 标记为 "既有失败"
 - 与本次变更相关的测试失败 → 🔴 阻塞
 
+#### 2.4 覆盖率门禁
+
+**无论 Layer 2.3 是否跳过，都执行覆盖率验证。**
+
+```bash
+# 覆盖率来源判断
+if [ "$TDD_ALL_COVERED" = "true" ] && [ -n "$TDD_REPORT_PATH" ] && [ -f "$TDD_REPORT_PATH" ]; then
+  echo "=== 覆盖率门禁 ==="
+  echo "来源: TDD 报告 ($TDD_REPORT_PATH)"
+  echo "总体覆盖率: ${TDD_AVG_COVERAGE}% (阈值: ${COVERAGE_THRESHOLD}%)"
+  echo "结果: $(if [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ]; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
+  COVERAGE_GATE_PASSED=$(if [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ]; then echo "true"; else echo "false"; fi)
+else
+  echo "=== 覆盖率门禁 ==="
+  
+  # 自己运行覆盖率
+  ./gradlew test<Variant>UnitTest 2>&1 | tail -20
+  
+  # 查找 JaCoCo 报告
+  JACOCO_XML=$(find "$PROJECT_ROOT" -path "*/reports/jacoco/*/*.xml" -type f 2>/dev/null | head -1)
+  
+  if [ -f "$JACOCO_XML" ]; then
+    echo "来源: JaCoCo XML 报告"
+    echo "报告路径: $JACOCO_XML"
+  else
+    echo "来源: Gradle 测试输出"
+    echo "⚠️ 未找到 JaCoCo 报告，覆盖率数据可能不完整"
+  fi
+  
+  COVERAGE_GATE_PASSED="unknown"
+fi
+```
+
+**覆盖率门禁规则:**
+
+| 指标 | 默认阈值 | TDD 被跳过时阈值 | 不达标处理 |
+|------|---------|-------------------|-----------|
+| 总体行覆盖率 | 80% | 90% | 触发自动补测试 |
+| 关键路径覆盖率 | 90% | 95% | 触发自动补测试 |
+| 分支覆盖率 | 75% | 85% | 记录为 🟡 建议 |
+
+**关键路径定义:** 文件名匹配 `*ViewModel.kt`、`*Repository.kt`、`*RepositoryImpl.kt`、`*UseCase.kt`
+
+**覆盖率不达标时自动补测试:**
+1. 识别低于阈值的文件
+2. 读取源码，分析未覆盖的分支
+3. 生成针对性测试代码
+4. 运行测试验证
+5. 重新检查覆盖率 (最多 2 轮)
+
+**覆盖率报告格式:**
+
+```
+=== 覆盖率门禁 ===
+来源: TDD 报告 / QA 执行
+
+总体覆盖率: XX% ✅/❌ (阈值: 80%)
+分支覆盖率: XX% ✅/❌ (阈值: 75%)
+关键路径:   XX% ✅/❌ (阈值: 90%)
+
+文件级详情:
+  ✅ XxxViewModel.kt      XX%
+  ✅ XxxRepository.kt     XX%
+  🟡 XxxScreen.kt         XX% (建议: 补充测试)
+  ❌ XxxMapper.kt         XX% → 触发自动补测试
+```
+
+**JaCoCo 未配置时:**
+```
+⚠️ JaCoCo 未配置，无法精确测量覆盖率。
+建议: 在 build.gradle.kts 中添加 JaCoCo 插件。
+使用测试通过率作为替代指标: N/N passed ✅
+```
+
 **Layer 2 输出格式:**
 
 ```
@@ -444,6 +604,8 @@ fi
 构建:     ✅ 通过 (耗时 45s)
 Lint:     🟡 2 Warning, 0 Error
 单元测试: ✅ 42 passed, 0 failed (耗时 12s)
+覆盖率:   XX% (总体) / XX% (关键路径) ✅/❌
+TDD:      N/M 任务已执行 / N 跳过
 
 Lint 问题:
   [L2-001] Warning: "UnusedResource" - app/src/main/res/values/strings.xml:15
@@ -632,6 +794,24 @@ adb logcat -d | grep -i "ANR" | tail -5
 | 单元测试 | N passed / N failed |
 | 设备测试 | ✅ / ❌ / 跳过 |
 
+## TDD 执行摘要
+
+| 指标 | 结果 |
+|------|------|
+| TDD 状态 | 已检测 / 未检测 |
+| TDD 任务数 | N/M |
+| TDD 平均覆盖率 | XX% |
+| TDD 跳过任务 | N (原因列表) |
+| QA 复用 TDD 结果 | 是/否 |
+
+## 覆盖率门禁
+
+| 指标 | 结果 | 阈值 | 状态 |
+|------|------|------|------|
+| 总体行覆盖率 | XX% | 80% | ✅/❌ |
+| 分支覆盖率 | XX% | 75% | ✅/❌ |
+| 关键路径覆盖率 | XX% | 90% | ✅/❌ |
+
 ## Bug 列表
 
 ### 🔴 阻塞
@@ -715,6 +895,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 |------|------|----------|
 | 自动修复 | 缺少资源文件、lint 警告、未使用的导入、简单硬编码 | 直接修复 |
 | 需确认 | 逻辑错误、架构问题、需要业务判断的修复 | 询问用户 |
+| 覆盖率不达标 | 自动补测试 → 重新验证覆盖率 | 新增 |
 
 ### 步骤 2: 自动修复
 
@@ -725,6 +906,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 3. **Lint Warning (简单)** — 按 lint 建议修改
 4. **硬编码字符串** — 抽取到 strings.xml
 5. **硬编码尺寸** — 抽取到 dimens.xml
+6. **覆盖率缺口** — 为低于阈值的文件生成补充测试，重新验证覆盖率
 
 ```bash
 # 示例: 创建缺失的字符串资源
@@ -836,6 +1018,8 @@ EOF
 | APK 安装失败 (签名冲突) | 先 `adb uninstall <package>` 再重试 |
 | docs/reviews 目录不存在 | 自动创建 |
 | 与 android-investigate 集成 | 发现复杂 bug 时，建议调用 android-investigate 进行根因分析 |
+| TDD 被跳过的业务任务 | 覆盖率阈值提升至 90%，Layer 2.3 强制执行，记录警告 |
+| 无 JaCoCo 配置 | 提示配置 JaCoCo 以启用覆盖率门禁，使用测试通过率替代 |
 
 ---
 
@@ -873,6 +1057,7 @@ Plan 所有任务已完成。是否执行 QA 测试?
 | android-investigate | 下游 | 发现复杂 bug 时调用进行根因分析 |
 | android-design-review | 参考 | QA 时对照 design-spec.md 验证设计还原度 |
 | android-autoplan | 参考 | QA 时对照 plan 文件验证功能完整性 |
+| android-tdd | 上游 | QA 读取 TDD 报告和 tasks.json TDD 状态，避免重复测试，复用覆盖率数据 |
 
 ---
 

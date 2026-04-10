@@ -222,6 +222,8 @@ ProGuard: app/proguard-rules.pro
   intent-filter、metadata
 - **ProGuard/R8 规则:** 新依赖的 keep 规则
 
+> 这些任务不适合 TDD，标记 **TDD: skip**。
+
 **第二层: 数据层**
 
 - 数据模型定义 (data class / Entity / Parcelable)
@@ -230,12 +232,16 @@ ProGuard: app/proguard-rules.pro
 - 本地存储 (Room DAO + Entity / SharedPreferences / DataStore)
 - 数据映射器 (DTO ↔ Domain Model)
 
+> 这些任务必须经过 TDD，标记 **TDD: required**。在步骤描述中包含 TDD 测试要求。
+
 **第三层: 业务逻辑层**
 
 - UseCase / Interactor
 - ViewModel / 状态管理 (StateFlow / LiveData)
 - 业务规则验证
 - 错误处理策略
+
+> 这些任务必须经过 TDD，标记 **TDD: required**。在步骤描述中包含 TDD 测试要求。
 
 **第四层: 表现层**
 
@@ -245,11 +251,15 @@ ProGuard: app/proguard-rules.pro
 - 交互反馈 (Snackbar / Dialog / Toast)
 - 动画 / 过渡效果
 
+> 这些任务必须经过 TDD，标记 **TDD: required**。在步骤描述中包含 TDD 测试要求。
+
 **第五层: 测试**
 
 - 单元测试 (对应第二、三层的每个任务)
 - UI 测试 / 集成测试 (对应第四层)
 - 边界条件测试 (空数据、网络错误、权限拒绝)
+
+> 测试任务本身不需要 TDD，标记 **TDD: skip**。
 
 ### 步骤 4: 必须检查项核对
 
@@ -281,6 +291,7 @@ ProGuard: app/proguard-rules.pro
 ### Task 1: <标题>
 
 **层级:** 基础设施 / 数据层 / 业务逻辑层 / 表现层 / 测试
+**TDD:** required / skip
 
 **步骤:**
 - [ ] 步骤 1 描述
@@ -295,6 +306,18 @@ ProGuard: app/proguard-rules.pro
 ### Task 2: <标题>
 ...
 ```
+
+**TDD 标签分配规则 (强制):**
+
+| 任务层级 | TDD 标签 | 原因 |
+|---------|---------|------|
+| 基础设施 | **skip** | Gradle/Manifest/ProGuard 不适合 TDD |
+| 数据层 | **required** | Repository、数据模型、API 接口必须有测试 |
+| 业务逻辑层 | **required** | UseCase、ViewModel 是核心逻辑，TDD 价值最高 |
+| 表现层 | **required** | UI 组件需要测试状态绑定和交互逻辑 |
+| 测试 | **skip** | 测试任务本身就是测试，不需要 TDD |
+
+**规则: 除基础设施和测试层外，所有任务 TDD = required。不可协商。**
 
 使用 AskUserQuestion 确认:
 > 已生成 N 个任务。是否需要调整?
@@ -554,10 +577,14 @@ Plan 文件: <路径>
 2. 测试类型是否合理? (单元/Robolectric/UI)
 3. 是否覆盖边界条件? (空数据/网络错误/权限拒绝)
 4. Mock 策略是否明确? (MockK vs Mockito)
+5. 每个非基础设施任务是否标记了 **TDD: required**?
+6. TDD 任务的步骤描述中是否包含足够的边界条件? (参考 Android 平台边界矩阵: 生命周期、配置变更、权限、网络、存储、并发、内存、兼容性)
+7. 如果任务包含 UI 逻辑，步骤中是否同时包含 JVM 单元测试和 Instrumented 测试描述?
 
 输出格式 (控制在 300 字以内):
 - 结论: 通过 / 需要调整
 - 缺失测试列表 (如有): 任务编号 + 建议的测试类型
+- TDD 合规性: N/M 非基础设施任务标记了 TDD: required
 - 同时产出测试计划写入 docs/plans/<slug>-test-plan.md
 ```
 
@@ -864,18 +891,21 @@ android-worktree-runner Phase 3: 完成
 ## 任务列表
 
 ### Task 1: 添加网络依赖
+**TDD:** skip
 - [ ] 在 app/build.gradle.kts 添加 Retrofit + OkHttp 依赖
 - [ ] 同步 Gradle 确认编译通过
 
 ### Task 2: 定义 API 接口和数据模型
+**TDD:** required
 - [ ] 创建 LoginRequest / LoginResponse 数据类
 - [ ] 创建 AuthService Retrofit 接口
-- [ ] 编写单元测试
+- [ ] TDD: 编写 Repository 接口测试 (happy path + 网络失败边界)
 
 ### Task 3: 实现 Repository
+**TDD:** required
 - [ ] 创建 AuthRepository 接口
 - [ ] 实现 AuthRepositoryImpl (网络 + 本地缓存)
-- [ ] 编写单元测试
+- [ ] TDD: 编写单元测试 (缓存命中/未命中 + 网络错误降级)
 
 ...
 ```
