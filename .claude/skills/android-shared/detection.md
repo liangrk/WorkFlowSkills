@@ -242,3 +242,6 @@ The following skills reference this shared detection module:
 | android-qa | Project Root, Base Branch, Tech Stack, Gradle Commands |
 | android-code-review | Project Root, Tech Stack, Architecture |
 | android-investigate | Project Root, Tech Stack |
+
+> 以下 skill 有独立的检测逻辑 (包含 Figma MCP、文档 diff 等专项检测)，不引用本模块:
+> android-design-review, android-document-release, android-checkpoint, android-brainstorm

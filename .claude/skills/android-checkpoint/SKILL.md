@@ -317,8 +317,8 @@ USER_CHALLENGES=$(grep -A 5 "用户挑战" "$LATEST_PLAN" 2>/dev/null | head -20
 阶段判断逻辑:
 - 如果 LATEST_PLAN == null         → "未开始 (Phase 0)"
 - 如果 CEO_SUMMARY == null         → "Phase 1 完成 (Plan 已生成)"
-- 如果 ARCH_CONCLUSION == null     → "Phase 2 完成 (CEO Review 已通过)"
-- 如果 DX_SUMMARY == null          → "Phase 4+3.5 完成 (Eng+DX Review 已通过，Design Review 按需)"
+- 如果 ARCH_CONCLUSION == null     → "Phase 2 完成 (CEO Review 已通过, Design Review 按需)"
+- 如果 DX_SUMMARY == null          → "Phase 4 完成 (Eng Review 已通过)"
 - 如果有 "审批摘要" 关键词          → "Phase 5 完成 (最终审批前)"
 - 如果有 "审批通过" 关键词          → "已批准 (待执行)"
 

@@ -286,7 +286,7 @@ autoplan 在关键节点自动保存检查点:
 │       ├── android-code-review/SKILL.md
 │       ├── android-qa/SKILL.md
 │       ├── android-investigate/SKILL.md
-       ├── android-checkpoint/SKILL.md
+│       ├── android-checkpoint/SKILL.md
 │       └── android-document-release/SKILL.md
 ```
 
