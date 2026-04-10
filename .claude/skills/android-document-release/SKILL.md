@@ -210,7 +210,7 @@ Breaking Changes:
 if [ -f "$PROJECT_ROOT/README.md" ]; then
   echo "README_EXISTS"
   # 读取当前 README 内容
-  wc -l "$PROJECT_ROOT/README.md"
+  wc -l "$PROJECT_ROOT/README.md" | tr -d ' '
 else
   echo "README_NOT_FOUND"
 fi
@@ -254,7 +254,7 @@ fi
 # 检查最新版本是否已包含当前变更
 if [ -f "$PROJECT_ROOT/CHANGELOG.md" ]; then
   # 从分支名推断版本号 (如果有)
-  VERSION_FROM_BRANCH=$(echo "$TARGET_BRANCH" | grep -oP 'v?\d+\.\d+\.\d+' | head -1)
+  VERSION_FROM_BRANCH=$(echo "$TARGET_BRANCH" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   if [ -n "$VERSION_FROM_BRANCH" ]; then
     grep -q "$VERSION_FROM_BRANCH" "$PROJECT_ROOT/CHANGELOG.md" && echo "VERSION_RECORDED" || echo "VERSION_NOT_RECORDED"
   fi

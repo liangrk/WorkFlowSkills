@@ -202,9 +202,9 @@ fi
 
 ```bash
 # SDK 版本
-MIN_SDK=$(grep -E "minSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oP '\d+' | head -1)
-TARGET_SDK=$(grep -E "targetSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oP '\d+' | head -1)
-COMPILE_SDK=$(grep -E "compileSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oP '\d+' | head -1)
+MIN_SDK=$(grep -E "minSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
+TARGET_SDK=$(grep -E "targetSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
+COMPILE_SDK=$(grep -E "compileSdk\s*=" "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
 
 # 模块列表
 MODULES=$(cat "$PROJECT_ROOT/settings.gradle" "$PROJECT_ROOT/settings.gradle.kts" 2>/dev/null | grep "include" | sed 's/.*include[(:]*\s*//' | tr -d "'\":)" | tr ',' '\n' | sed 's/^[[:space:]]*//' | sort -u)
@@ -419,7 +419,7 @@ CHECKPOINT_FILE="$CHECKPOINT_DIR/checkpoint-${TIMESTAMP}.json"
 ```bash
 # 列出所有检查点文件，按时间倒序排序
 ALL_CHECKPOINTS=$(ls -1 "$CHECKPOINT_DIR"/checkpoint-*.json 2>/dev/null | sort -r)
-COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l)
+COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l | tr -d ' ')
 
 # 保留最近 10 个，删除其余
 if [ "$COUNT" -gt 10 ]; then
@@ -457,7 +457,7 @@ CHECKPOINT_DIR="$PROJECT_ROOT/.claude/android-checkpoint"
 
 # 列出所有检查点文件
 ALL_CHECKPOINTS=$(ls -1 "$CHECKPOINT_DIR"/checkpoint-*.json 2>/dev/null | sort -r)
-COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l)
+COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l | tr -d ' ')
 
 if [ "$COUNT" -eq 0 ]; then
   echo "未找到检查点。请先使用 /android-checkpoint save 保存状态。"
@@ -581,7 +581,7 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 CHECKPOINT_DIR="$PROJECT_ROOT/.claude/android-checkpoint"
 
 ALL_CHECKPOINTS=$(ls -1 "$CHECKPOINT_DIR"/checkpoint-*.json 2>/dev/null | sort -r)
-COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l)
+COUNT=$(echo "$ALL_CHECKPOINTS" | wc -l | tr -d ' ')
 
 if [ "$COUNT" -eq 0 ]; then
   echo "未找到检查点。请先使用 /android-checkpoint save 保存状态。"

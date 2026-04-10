@@ -150,7 +150,8 @@ voice-triggers:
    若 FILE_MISSING:
    1. 运行预加载脚本:
       ```bash
-      bash .claude/skills/android-shared/bin/android-learnings-bootstrap
+      SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+      bash "$SHARED_BIN/android-learnings-bootstrap"
       ```
    2. 重新检查条目数
 
@@ -195,7 +196,8 @@ voice-triggers:
 
 1. 运行搜索脚本:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-search --limit 50
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-search" --limit 50
    ```
 
 2. 若输出为 `LEARNINGS: 0`，显示:
@@ -232,7 +234,8 @@ voice-triggers:
 
 2. 运行跨项目搜索:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-search \
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-search" \
      --query "<keyword>" \
      --limit 20 \
      --cross-project
@@ -337,7 +340,8 @@ voice-triggers:
 
 3. 调用脚本写入:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '<json>'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '<json>'
    ```
 
 4. 若输出以 `OK:` 开头，显示:

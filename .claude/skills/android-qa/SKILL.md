@@ -48,12 +48,14 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
 # 加载与 QA 相关的历史学习记录
-LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
   echo "$LEARNINGS"
@@ -68,7 +70,8 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
 脚本不可用时回退到以下内联检测命令。
@@ -969,10 +972,10 @@ INSTALL_EXIT=$?
 
 ```bash
 # 获取包名
-PACKAGE_NAME=$(grep -r 'applicationId\|namespace' "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | grep -oP '"[^"]+"' | tr -d '"' | head -1)
+PACKAGE_NAME=$(grep -r 'applicationId\|namespace' "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1)
 
 # 获取启动 Activity
-LAUNCH_ACTIVITY=$(grep -A5 'android.intent.category.LAUNCHER' "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null | grep 'android:name' | head -1 | grep -oP '"[^"]+"' | tr -d '"')
+LAUNCH_ACTIVITY=$(grep -A5 'android.intent.category.LAUNCHER' "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null | grep 'android:name' | head -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
 
 # 启动应用
 adb shell am start -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1
@@ -1420,12 +1423,14 @@ QA 完成后，将发现的典型 bug 模式记录到学习系统以供未来 se
 
 1. **发现典型 bug 模式** — 如果 bug 不是简单的拼写/配置错误，而是具有普遍性的模式，使用 android-learnings-log 记录:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"qa","type":"pitfall","key":"<bug模式简述>","insight":"<bug描述和修复方式>","confidence":8,"source":"observed","files":["<bug文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"qa","type":"pitfall","key":"<bug模式简述>","insight":"<bug描述和修复方式>","confidence":8,"source":"observed","files":["<bug文件>"]}'
    ```
 
 2. **发现项目特有的测试配置问题** — 如特定的 lint 规则误报、测试环境配置坑，记录为 technique:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"qa","type":"technique","key":"<配置名>","insight":"<配置坑描述>","confidence":7,"source":"observed","files":["<配置文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"qa","type":"technique","key":"<配置名>","insight":"<配置坑描述>","confidence":7,"source":"observed","files":["<配置文件>"]}'
    ```
 
 **不记录:**

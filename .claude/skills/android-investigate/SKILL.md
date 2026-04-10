@@ -92,12 +92,14 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
 # 加载与问题领域相关的历史学习记录
-LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --query "<bug领域关键词>" --limit 5 2>/dev/null || true)
+LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --query "<bug领域关键词>" --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
   echo "$LEARNINGS"
@@ -151,7 +153,8 @@ grep -rn "error\|Error\|fail\|Fail\|exception\|Exception" <相关文件> --inclu
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
 脚本不可用时回退到以下内联检测命令。
@@ -884,12 +887,14 @@ fun createOrder(order: Order) {
 
 1. **根因确认后** — 使用 android-learnings-log 记录根因模式:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"investigate","type":"pitfall","key":"<根因简述>","insight":"<根因描述和触发条件>","confidence":9,"source":"observed","files":["<根因文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"investigate","type":"pitfall","key":"<根因简述>","insight":"<根因描述和触发条件>","confidence":9,"source":"observed","files":["<根因文件>"]}'
    ```
 
 2. **发现新的排查路径** — 如果排查过程中发现了非直觉的调试方法，记录为 technique:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"investigate","type":"technique","key":"<方法名>","insight":"<方法描述>","confidence":7,"source":"inferred","files":[]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"investigate","type":"technique","key":"<方法名>","insight":"<方法描述>","confidence":7,"source":"inferred","files":[]}'
    ```
 
 3. **验证或推翻历史记录** — 如果历史学习记录中的某条在本轮调查中被验证或推翻，更新置信度。

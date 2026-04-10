@@ -220,7 +220,8 @@ fi
 ### 步骤 1: 运行扫描脚本
 
 ```bash
-bash .claude/skills/android-shared/bin/android-scan-project --force
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+bash "$SHARED_BIN/android-scan-project" --force
 ```
 
 脚本会自动:

@@ -60,7 +60,8 @@ voice-triggers:
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
 脚本不可用时回退到以下内联检测命令。

@@ -59,12 +59,13 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
 # 加载与覆盖率相关的历史学习记录
-LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
   echo "$LEARNINGS"
@@ -79,7 +80,8 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
 脚本不可用时回退到以下内联检测命令。
@@ -394,8 +396,8 @@ if [ -f "$JACOCO_XML" ]; then
   # LINE 覆盖率
   echo "--- LINE ---"
   grep '<counter type="LINE"' "$JACOCO_XML" | while read line; do
-    missed=$(echo "$line" | grep -oP 'missed="\K[^"]+')
-    covered=$(echo "$line" | grep -oP 'covered="\K[^"]+')
+    missed=$(echo "$line" | sed -n 's/.*missed="\([^"]*\)".*/\1/p')
+    covered=$(echo "$line" | sed -n 's/.*covered="\([^"]*\)".*/\1/p')
     total=$((missed + covered))
     if [ "$total" -gt 0 ]; then
       pct=$((covered * 100 / total))
@@ -406,8 +408,8 @@ if [ -f "$JACOCO_XML" ]; then
   # BRANCH 覆盖率
   echo "--- BRANCH ---"
   grep '<counter type="BRANCH"' "$JACOCO_XML" | while read line; do
-    missed=$(echo "$line" | grep -oP 'missed="\K[^"]+')
-    covered=$(echo "$line" | grep -oP 'covered="\K[^"]+')
+    missed=$(echo "$line" | sed -n 's/.*missed="\([^"]*\)".*/\1/p')
+    covered=$(echo "$line" | sed -n 's/.*covered="\([^"]*\)".*/\1/p')
     total=$((missed + covered))
     if [ "$total" -gt 0 ]; then
       pct=$((covered * 100 / total))
@@ -418,8 +420,8 @@ if [ -f "$JACOCO_XML" ]; then
   # METHOD 覆盖率
   echo "--- METHOD ---"
   grep '<counter type="METHOD"' "$JACOCO_XML" | while read line; do
-    missed=$(echo "$line" | grep -oP 'missed="\K[^"]+')
-    covered=$(echo "$line" | grep -oP 'covered="\K[^"]+')
+    missed=$(echo "$line" | sed -n 's/.*missed="\([^"]*\)".*/\1/p')
+    covered=$(echo "$line" | sed -n 's/.*covered="\([^"]*\)".*/\1/p')
     total=$((missed + covered))
     if [ "$total" -gt 0 ]; then
       pct=$((covered * 100 / total))
@@ -850,17 +852,20 @@ fi
 
 1. **发现覆盖率配置问题** -- 如 JaCoCo 版本兼容性、排除规则不当、多模块覆盖率合并失败，使用 android-learnings-log 记录:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"coverage","type":"pitfall","key":"<配置问题简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<配置文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"pitfall","key":"<配置问题简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<配置文件>"]}'
    ```
 
 2. **发现测试生成失败模式** -- 如特定类类型难以自动生成测试、mock 策略失效，记录为 pitfall:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"coverage","type":"pitfall","key":"<失败模式简述>","insight":"<失败原因和绕过方案>","confidence":7,"source":"observed","files":["<相关文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"pitfall","key":"<失败模式简述>","insight":"<失败原因和绕过方案>","confidence":7,"source":"observed","files":["<相关文件>"]}'
    ```
 
 3. **发现高效测试策略** -- 如某个 mock 模式特别高效、某个覆盖率提升技巧特别有效，记录为 technique:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"coverage","type":"technique","key":"<策略名>","insight":"<策略描述>","confidence":7,"source":"inferred","files":[]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"technique","key":"<策略名>","insight":"<策略描述>","confidence":7,"source":"inferred","files":[]}'
    ```
 
 **不记录:**
