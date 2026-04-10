@@ -3,7 +3,7 @@ name: android-code-review
 description: |
   Android 代码审查 skill。在 worktree-runner 任务完成或 plan 执行完毕后，
   对代码变更进行质量审查。检查命名规范、架构一致性、生命周期安全、
-  线程安全、资源管理等 Android 特有问题。
+  线程安全、资源管理、安全漏洞等 Android 特有问题。
   适用场景: PR 审查、任务完成后代码质量检查、代码评审。
 voice-triggers:
   - "代码审查"
@@ -15,7 +15,7 @@ voice-triggers:
 
 ## 概述
 
-代码变更 → 六维度审查 → 审查报告。不写代码，只审查并产出报告。
+代码变更 → 七维度审查 → 审查报告。不写代码，只审查并产出报告。
 
 **启动时声明:** "我正在使用 android-code-review skill。"
 
@@ -260,6 +260,14 @@ git diff main...HEAD --diff-filter=D --name-only
 git diff main...HEAD --shortstat
 ```
 
+**4. 安全相关文件检测:**
+```bash
+# 检测安全相关配置文件
+git diff main...HEAD --name-only | grep -E \
+  "(network_security_config|proguard-rules|AndroidManifest\.xml|build\.gradle|\.keystore|security)" \
+  2>/dev/null || echo "无安全配置文件变更"
+```
+
 ### 步骤 3: 输出变更摘要
 
 ```
@@ -308,7 +316,7 @@ git diff main...HEAD --shortstat
 
 ---
 
-## Phase 2: 代码审查 (六维度 Subagent)
+## Phase 2: 代码审查 (七维度 Subagent)
 
 将审查拆为独立维度派发 subagent，避免上下文溢出。
 主 context 只接收每个 subagent 的紧凑结论。
@@ -319,7 +327,7 @@ git diff main...HEAD --shortstat
 |------|---------|------|
 | Phase 0 (环境检测) | ~10% | 主 context |
 | Phase 1 (变更分析) | ~10% | 主 context |
-| Phase 2 (六维度审查) | ~6% (仅汇总结论) | subagent x6 |
+| Phase 2 (七维度审查) | ~7% (仅汇总结论) | subagent x7 |
 | Phase 3 (汇总报告) | ~15% | 主 context |
 
 ### 前置: 准备审查输入
@@ -580,14 +588,85 @@ Diff:
   - 文件:行号 | 严重程度 (阻塞/建议) | 可测试性问题 | 描述 | 修复建议
 ```
 
+### 步骤 7: 派发 Android 安全审查
+
+```
+你是 Android 安全审查专家。审查以下代码变更中的安全问题。
+
+项目技术栈: <技术栈档案>
+项目架构: <架构推断>
+变更范围: <变更摘要>
+安全相关文件: <Phase 1 步骤 2 安全文件检测结果>
+
+Diff:
+<完整 diff 或相关文件 diff>
+
+审查范围:
+1. 网络安全: Network Security Config、HTTPS、证书固定
+2. 数据安全: 敏感数据存储、API Key 硬编码、日志泄露
+3. 组件安全: exported 属性、ContentProvider、Intent 注入
+4. 代码混淆: ProGuard/R8 规则、minifyEnabled
+5. 权限管理: 最小权限原则、运行时权限
+6. 依赖安全: 已知漏洞、SDK 来源
+
+审查要点:
+1. 网络安全:
+   - Network Security Config 是否配置 (res/xml/network_security_config.xml)?
+   - 是否有 cleartext traffic (android:usesCleartextTraffic)?
+   - HTTPS 证书固定 (Certificate Pinning) 是否实现?
+   - API endpoint 是否全部使用 HTTPS?
+   - TrustManager 是否被自定义覆盖 (自定义 SSLSocketFactory)?
+2. 数据安全:
+   - 敏感数据是否明文存储 (SharedPreferences, SQLite)?
+   - 是否使用 EncryptedSharedPreferences 或 SQLCipher?
+   - API Key / Token 是否硬编码? (grep "api_key", "token", "secret", "password")
+   - Log 中是否泄露敏感信息 (Log.d/Log.v 包含密码、token、PII)?
+   - Clipboard 中是否暂存敏感数据?
+3. 组件安全:
+   - ContentProvider 是否配置 exported + permissions?
+   - Activity/Service/Receiver exported 属性是否最小化?
+   - Intent 注入风险 (untrusted Intent handling, getIntent() 未验证)?
+   - Deep Link 验证 (是否验证 incoming Intent 的来源和参数)?
+   - FileProvider 路径是否正确配置 (FileProvider.getUriForFile)?
+4. 代码混淆:
+   - ProGuard/R8 规则是否完善?
+   - 反射使用的类是否添加 keep 规则?
+   - debug/release 构建变体是否区分配置?
+   - minifyEnabled true 是否在 release 中启用?
+5. 权限管理:
+   - Manifest 中是否声明了最小必要权限?
+   - 危险权限是否运行时请求 (非仅 Manifest 声明)?
+   - 权限是否按需申请 (非启动时全量请求)?
+   - 后台权限 (位置、相机) 是否有合理使用场景?
+6. 依赖安全:
+   - 是否有已知漏洞的依赖 (通过 gradle 依赖树检查)?
+   - 第三方 SDK 是否来自可信源?
+   - 是否有过度权限的 SDK?
+
+对每个发现，格式:
+[BLOCKER/WARNING/INFO] (confidence: N/10) file:line — description
+
+BLOCKER 标准: 硬编码密钥、明文存储密码、证书固定缺失(生产环境)、组件未授权导出
+WARNING 标准: 敏感日志、过度权限、ProGuard 规则不完整、非 HTTPS API
+INFO 标准: 建议性安全改进
+
+最后给出安全评分 (1-10) 和关键修复建议。
+
+输出格式 (严格控制在 300 字以内):
+- 结论: 通过 / 需要调整
+- 安全评分: N/10
+- 问题列表 (如有):
+  - 文件:行号 | 严重程度 (阻塞/建议) | 安全类别 | 描述 | 修复建议
+```
+
 ### Subagent 并发控制
 
 **最大并发数: 3 个。** 同时运行的 subagent 不得超过 3 个。
 如果 diff 较小 (< 500 行)，可以串行派发以减少资源消耗。
 
-派发顺序: 先派发维度 1-3 (架构、风格、生命周期)，收到结果后再派发维度 4-6
-(线程、Android 特有、可测试性)。这样可以根据前三个维度的结果判断是否需要调整
-后续审查的重点。
+派发顺序: 先派发维度 1-3 (架构、风格、生命周期)，收到结果后再派发维度 4-7
+(线程、Android 特有、可测试性、安全)。这样可以根据前三个维度的结果判断是否需要调整
+后续审查的重点。安全维度作为独立维度始终派发，无论变更规模大小。
 
 **置信度评分 (对标 gstack review):**
 
@@ -635,8 +714,8 @@ Diff:
 **流程:**
 
 1. 使用 Agent tool 派发独立 subagent（fresh context，看不到 Phase 2-3 的审查过程）:
-   - 输入: git diff + 技术栈信息 + 6 个 dimension 的审查结论摘要
-   - Prompt: "你是代码审查的对手。6 个审查维度已经完成了审查，你的任务是找出他们遗漏的问题。重点关注: 安全漏洞、边界条件、并发问题、资源泄漏、平台兼容性。"
+   - 输入: git diff + 技术栈信息 + 7 个 dimension 的审查结论摘要
+   - Prompt: "你是代码审查的对手。7 个审查维度已经完成了审查，你的任务是找出他们遗漏的问题。重点关注: 安全漏洞 (OWASP Mobile Top 10)、边界条件、并发问题、资源泄漏、平台兼容性。特别检查: 硬编码密钥、不安全的 Intent 处理、证书验证绕过、WebView 漏洞。"
    - 不传入主审查的具体结论，只传入变更内容，避免确认偏差
 
 2. 对抗审查产出补充发现列表:
@@ -674,12 +753,16 @@ Diff:
 
 **PR 质量评分:**
 ```bash
-QUALITY_SCORE=$(python3 -c "print(max(0, 10 - (BLOCKER * 2 + WARNING * 0.5)))")
+QUALITY_SCORE=$(python3 -c "print(max(0, 10 - (SECURITY_BLOCKER * 4 + BLOCKER * 2 + WARNING * 0.5)))")
 ```
 - 10: 无问题
 - 8-9: 少量 WARNING
 - 6-7: 多个 WARNING 或 1 个 BLOCKER
-- 0-5: 多个 BLOCKER
+- 0-5: 多个 BLOCKER 或安全漏洞
+
+**安全评分权重说明:** 安全维度的 BLOCKER 问题权重为普通 BLOCKER 的 2 倍 (4 分 vs 2 分)。
+安全维度发现的 BLOCKER 记为 SECURITY_BLOCKER，其他维度发现的 BLOCKER 记为普通 BLOCKER。
+安全 WARNING 与普通 WARNING 权重相同。
 
 将评分包含在报告头部。
 
@@ -732,6 +815,12 @@ mkdir -p docs/reviews
 - **描述:** Room DAO 查询未使用 suspend 或 IO dispatcher
 - **建议:** 将函数声明为 suspend 函数，让 Room 自动在 IO 线程执行
 
+### [B3] API Key 硬编码
+- **文件:** `app/src/main/java/.../ApiConfig.kt:12`
+- **维度:** Android 安全
+- **描述:** API Key 以明文硬编码在源码中，可通过反编译获取
+- **建议:** 使用 BuildConfig 字段 + 签名验证或服务端代理分发密钥
+
 ## WARNING (建议)
 
 ### [W1] 硬编码 API URL
@@ -745,6 +834,12 @@ mkdir -p docs/reviews
 - **维度:** Android 特有
 - **描述:** Retrofit 响应模型在 R8 混淆后可能字段丢失
 - **建议:** 添加 @Keep 注解或在 proguard-rules.pro 中添加 keep 规则
+
+### [W3] 敏感信息日志输出
+- **文件:** `app/src/main/java/.../LoginViewModel.kt:56`
+- **维度:** Android 安全
+- **描述:** Log.d 中包含用户 token，在 release 构建中可通过 logcat 读取
+- **建议:** 移除敏感日志，或使用 Timber + ProGuard 规则在 release 中移除 Log 调用
 
 ## INFO (信息)
 
@@ -764,6 +859,7 @@ mkdir -p docs/reviews
 | 线程与并发 | 需要调整 | 1 阻塞 |
 | Android 特有 | 需要调整 | 1 建议 |
 | 可测试性 | 需要调整 | 1 建议 |
+| Android 安全 | 需要调整 | 1 阻塞 + 1 建议 |
 ```
 
 ### 步骤 5: 展示审查结果

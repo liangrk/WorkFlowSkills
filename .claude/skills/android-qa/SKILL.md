@@ -3,7 +3,7 @@ name: android-qa
 description: |
   Android QA 测试 skill。在 worktree-runner plan 执行完毕后，
   对已实现的功能进行功能级验证。包括静态分析、日志检查、
-  构建验证、以及基于 adb 的设备/模拟器测试。
+  构建验证、性能基准测试、无障碍检测、以及基于 adb 的设备/模拟器测试。
   产出 bug 报告和修复建议。
   适用场景: 功能完成后验证、回归测试、上线前 QA。
 voice-triggers:
@@ -17,7 +17,7 @@ voice-triggers:
 ## 概述
 
 对当前分支或指定分支的变更进行分层 QA 测试，产出结构化 bug 报告。
-静态分析 + 构建/单元测试 + 设备测试三层覆盖，自动修复简单问题。
+静态分析 + 构建/单元测试 + 性能基准测试 + 无障碍检测 + 设备测试五层覆盖，自动修复简单问题。
 
 **启动时声明:** "我正在使用 android-qa skill。"
 
@@ -36,7 +36,7 @@ voice-triggers:
 **参数处理:**
 - 无参数: 对当前分支进行完整 QA
 - `<branch>`: 切换到指定分支后进行完整 QA (对比基准分支)
-- `smoke`: 仅执行 Layer 2 (构建 + 单元测试) + Layer 1 的关键检查
+- `smoke`: 仅执行 Layer 2 (构建 + 单元测试) + Layer 3A (构建性能) + Layer 1 的关键检查
 - `regression`: 扩大测试范围，包含主分支已有功能的回归验证
 
 ---
@@ -146,9 +146,9 @@ adb devices 2>/dev/null | grep -v "List of devices" | grep -v "^$"
 ```
 
 设备检测结果:
-- 有设备 → 记录设备序列号和型号，Layer 3 可执行
-- 无设备但 adb 可用 → 记录 "无已连接设备"，Layer 3 跳过
-- adb 不可用 → 记录 "adb 未安装"，Layer 3 跳过
+- 有设备 → 记录设备序列号和型号，Layer 5 可执行
+- 无设备但 adb 可用 → 记录 "无已连接设备"，Layer 5 跳过
+- adb 不可用 → 记录 "adb 未安装"，Layer 5 跳过
 
 ### 步骤 4: 检测 Gradle 可用性
 
@@ -307,7 +307,9 @@ find "$PROJECT_ROOT/.claude" -name "tasks.json" 2>/dev/null | head -5
 ### Subagent 并发控制
 
 - Layer 1 (静态分析) 和 Layer 2 (构建+测试) 可并行执行
-- Layer 3 (设备测试) 依赖 Layer 2 的构建产出 (APK)，串行执行
+- Layer 3 (性能基准测试) 依赖 Layer 2 的构建产出，串行执行
+- Layer 4 (无障碍检测) 与 Layer 3 可并行执行 (均无设备依赖)
+- Layer 5 (设备测试) 依赖 Layer 2 的构建产出 (APK)，串行执行
 - 最多同时运行 2 个 subagent
 
 ### Layer 1: 静态分析 (无需设备)
@@ -648,7 +650,195 @@ Lint 问题:
 
 ---
 
-### Layer 3: 设备测试 (需要 adb)
+### Layer 3: 性能基准测试
+
+**目标:** 评估构建性能、运行时性能和 Compose 性能，建立性能基线。
+
+**前置条件:** Layer 2 构建成功
+
+#### 3A: 构建性能 (无需设备)
+
+```bash
+# Build timing
+./gradlew assembleDebug --profile 2>&1 | tail -20
+
+# Build cache effectiveness
+./gradlew assembleDebug --profile 2>&1 | grep -E "cache hit|cache miss" || true
+
+# APK size check
+ls -la app/build/outputs/apk/debug/*.apk 2>/dev/null && du -h app/build/outputs/apk/debug/*.apk
+```
+
+**检查基准:**
+
+| 指标 | 基准 | 级别 |
+|------|------|------|
+| 构建耗时 (冷构建) | < 120s | WARN |
+| Debug APK 大小 | < 50MB | WARN |
+| 构建缓存命中率 | > 50% | INFO |
+
+#### 3B: 运行时性能 (需要设备，可选)
+
+```bash
+# 冷启动时间
+adb shell am start-activity -W -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1 | grep "TotalTime"
+
+# 内存占用
+adb shell dumpsys meminfo "$PACKAGE_NAME" 2>/dev/null | head -20
+
+# StrictMode 违规检查
+adb logcat -d | grep -i "StrictMode" | tail -20
+```
+
+**检查基准:**
+
+| 指标 | 基准 | 级别 |
+|------|------|------|
+| 冷启动时间 | < 1000ms | WARN |
+| 内存占用 | < 200MB | WARN |
+| StrictMode violations | 0 | WARN |
+
+**无设备时:** 跳过 3B，输出 "SKIP (无设备)"
+
+#### 3C: Compose 性能 (仅 Compose 项目)
+
+**Compose 检测:** Phase 0 步骤 2 中已检测到 `@Composable` 注解时执行。
+
+```bash
+# 检查 remember 和 LaunchedEffect 使用
+grep -r "remember {" app/src/main --include="*.kt" -l | head -10
+grep -r "LaunchedEffect" app/src/main --include="*.kt" -l | head -10
+
+# 检查 @Stable / @Immutable 注解
+grep -r "@Stable\|@Immutable" app/src/main --include="*.kt" | head -10
+
+# 检查 LazyColumn/LazyRow 中 key 参数使用
+grep -r "LazyColumn\|LazyRow" app/src/main --include="*.kt" -A 10 | grep "key\s*=" | head -10
+
+# 检查 collectAsState 生命周期
+grep -r "collectAsState" app/src/main --include="*.kt" | head -10
+```
+
+**静态检查项:**
+
+| 检查项 | 检测方式 | 建议 |
+|--------|----------|------|
+| LazyColumn/LazyRow 缺少 key | items 块中无 `key =` 参数 | 添加 key 提升性能 |
+| Composable 接收的 data class 缺少 @Stable | 参数类型为 data class 但未标注 | 添加 @Stable 或 @Immutable |
+| collectAsState 无生命周期限定 | 未在 LaunchedEffect 或 DisposableEffect 中使用 | 使用 lifecycleOwner 限定 |
+
+**非 Compose 项目:** 输出 "SKIP (未启用 Compose)"
+
+**Layer 3 输出格式:**
+
+```
+[QA Phase 3] 性能基准测试
+  3A 构建性能: PASS / WARN
+    - 构建耗时: 45s (基准: <120s)
+    - APK 大小: 12MB (基准: <50MB)
+    - 缓存命中率: 72%
+  3B 运行时性能: SKIP (无设备) / PASS / WARN
+    - 冷启动: 450ms (基准: <1000ms)
+    - 内存占用: 85MB (基准: <200MB)
+    - StrictMode: 0 violations
+  3C Compose 性能: PASS / WARN / SKIP (未启用 Compose)
+    - LazyColumn key 使用: 8/8 OK
+    - @Stable 注解: 3/5 建议
+    - 重组风险: 2 处建议优化
+```
+
+---
+
+### Layer 4: 无障碍检测
+
+**目标:** 静态检测代码中的无障碍 (a11y) 问题，确保应用对残障用户友好。
+
+**无需设备，无需构建。**
+
+#### 4A: 静态分析
+
+```bash
+# ImageView/Icon 缺少 contentDescription
+grep -r "ImageView\|Image(" app/src/main --include="*.xml" -A 2 | grep -v "contentDescription" | head -20
+
+# 可点击元素缺少 contentDescription
+grep -r 'android:clickable="true"' app/src/main --include="*.xml" -B 2 -A 2 | grep -v "contentDescription" | head -20
+
+# 触摸目标尺寸检查 (48dp 最低标准)
+grep -r "minHeight\|minWidth" app/src/main --include="*.xml" | head -10
+
+# 硬编码颜色 (对比度风险)
+grep -r "@android:color\|#[0-9a-fA-F]\{6\}" app/src/main/res/values/colors.xml 2>/dev/null | head -10
+
+# 文字大小单位检查 (应使用 sp)
+grep -r "android:textSize" app/src/main --include="*.xml" | grep -v "sp" | head -10
+```
+
+**检查基准:**
+
+| 检查项 | 基准 | 级别 |
+|--------|------|------|
+| ImageView contentDescription | 100% 覆盖 | WARN |
+| 可点击元素 contentDescription | 100% 覆盖 | WARN |
+| 触摸目标尺寸 | >= 48dp | INFO |
+| 文字大小单位 | 全部使用 sp | WARN |
+
+#### 4B: Compose 无障碍 (仅 Compose 项目)
+
+**Compose 检测:** Phase 0 步骤 2 中已检测到 `@Composable` 注解时执行。
+
+```bash
+# 检查 semantics 使用
+grep -r "semantics\|contentDescription\|stateDescription" app/src/main --include="*.kt" | head -20
+
+# 检查 Icon 缺少 contentDescription
+grep -r "Icon(" app/src/main --include="*.kt" -A 1 | grep -v "contentDescription" | head -10
+```
+
+**检查基准:**
+
+| 检查项 | 基准 | 级别 |
+|--------|------|------|
+| Icon contentDescription | 100% 覆盖 | WARN |
+| 交互元素 semantics | 有 semantics 块 | INFO |
+
+**非 Compose 项目:** 输出 "SKIP (未启用 Compose)"
+
+#### 4C: Manifest 检查
+
+```bash
+# 无障碍事件源声明
+grep -r "accessibilityEventSource\|importantForAccessibility" app/src/main --include="*.xml" | head -5
+
+# 自定义触摸处理器 (需要无障碍支持)
+grep -r "setOnTouchListener\|setOnClickListener" app/src/main --include="*.kt" | head -10
+```
+
+**检查基准:**
+
+| 检查项 | 基准 | 级别 |
+|--------|------|------|
+| 自定义触摸处理器 | 应有对应 contentDescription 或 semantics | INFO |
+
+**Layer 4 输出格式:**
+
+```
+[QA Phase 4] 无障碍检测
+  4A 静态分析:
+    - ImageView contentDescription: 12/15 OK, 3 missing
+    - 可点击元素 contentDescription: 8/10 OK, 2 missing
+    - 触摸目标尺寸: 5/8 符合 48dp 最低标准
+    - 硬编码颜色: 3 处 (建议提取到 colors.xml)
+    - 文字大小单位: 全部使用 sp
+  4B Compose 无障碍: PASS / WARN / SKIP
+    - Icon contentDescription: 6/7 OK
+    - semantics 使用: 4 处建议
+  4C Manifest 检查: PASS
+```
+
+---
+
+### Layer 5: 设备测试 (需要 adb)
 
 **前置条件:** Layer 2 构建成功 (需要 APK)
 
@@ -661,7 +851,7 @@ DEVICE_COUNT=$(echo "$DEVICES" | wc -l)
 
 **无设备:**
 ```
-=== Layer 3: 设备测试 ===
+=== Layer 5: 设备测试 ===
 状态: 跳过 (无可用设备/模拟器)
 原因: adb 未安装 / 无已连接设备 / 设备未授权
 建议: 连接设备或启动模拟器后重新运行 /android-qa
@@ -669,7 +859,7 @@ DEVICE_COUNT=$(echo "$DEVICES" | wc -l)
 
 **有设备:**
 
-#### 3.1 安装 APK
+#### 5.1 安装 APK
 
 ```bash
 # 确定 APK 路径
@@ -687,7 +877,7 @@ INSTALL_EXIT=$?
 
 **安装失败:** 记录为 🔴 阻塞，输出错误信息 (签名冲突、版本降级、空间不足)
 
-#### 3.2 启动应用
+#### 5.2 启动应用
 
 ```bash
 # 获取包名
@@ -700,7 +890,7 @@ LAUNCH_ACTIVITY=$(grep -A5 'android.intent.category.LAUNCHER' "$PROJECT_ROOT/app
 adb shell am start -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1
 ```
 
-#### 3.3 关键 UI 测试
+#### 5.3 关键 UI 测试
 
 根据 Phase 1 确定的测试范围，执行以下检查:
 
@@ -745,7 +935,7 @@ adb logcat -d | grep -i "okhttp\|retrofit\|http" | tail -10
 根据 plan 文件和变更文件推断出需要验证的关键用户流程，
 生成对应的 adb 命令序列。
 
-#### 3.4 性能基础检查
+#### 5.4 性能基础检查
 
 ```bash
 # 启动时间
@@ -758,10 +948,10 @@ adb shell dumpsys meminfo "$PACKAGE_NAME" | grep "TOTAL" | head -3
 adb logcat -d | grep -i "ANR" | tail -5
 ```
 
-**Layer 3 输出格式:**
+**Layer 5 输出格式:**
 
 ```
-=== Layer 3: 设备测试 ===
+=== Layer 5: 设备测试 ===
 设备:   Pixel 6 (emulator-5554)
 安装:   ✅ 成功
 启动:   ✅ 无崩溃
@@ -782,11 +972,11 @@ adb logcat -d | grep -i "ANR" | tail -5
 
 ---
 
-## Phase 3: Bug 报告
+## Phase 5: Bug 报告
 
 ### 步骤 1: 汇总所有层的结果
 
-合并 Layer 1、Layer 2、Layer 3 的发现，按严重程度分类。
+合并 Layer 1、Layer 2、Layer 3、Layer 4、Layer 5 的发现，按严重程度分类。
 
 **严重程度定义:**
 
@@ -821,6 +1011,8 @@ adb logcat -d | grep -i "ANR" | tail -5
 | 构建状态 | ✅ / ❌ |
 | 单元测试 | N passed / N failed |
 | 设备测试 | ✅ / ❌ / 跳过 |
+| 性能基准 | PASS / WARN / SKIP |
+| 无障碍检测 | PASS / WARN / SKIP |
 
 ## TDD 执行摘要
 
@@ -847,7 +1039,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 #### BUG-001: <标题>
 - **描述:** <问题描述>
 - **严重程度:** 🔴 阻塞
-- **来源:** Layer 1 静态分析 / Layer 2 构建 / Layer 3 设备
+- **来源:** Layer 1 静态分析 / Layer 2 构建 / Layer 3 性能 / Layer 4 无障碍 / Layer 5 设备
 - **文件:** `<文件路径>:<行号>`
 - **复现步骤:**
   1. <步骤 1>
@@ -870,7 +1062,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 
 #### TIP-001: <标题>
 - **描述:** <问题描述>
-- **来源:** Layer 1 / Layer 2
+- **来源:** Layer 1 / Layer 2 / Layer 3 / Layer 4
 - **文件:** `<文件路径>:<行号>`
 
 ## 测试详情
@@ -881,7 +1073,13 @@ adb logcat -d | grep -i "ANR" | tail -5
 ### Layer 2: 构建与单元测试
 (构建和测试详细结果)
 
-### Layer 3: 设备测试
+### Layer 3: 性能基准测试
+(性能基准测试详细结果)
+
+### Layer 4: 无障碍检测
+(无障碍检测详细结果)
+
+### Layer 5: 设备测试
 (设备测试详细结果，含截图路径)
 
 ## 修复建议优先级
@@ -906,6 +1104,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 ║  🔴 阻塞: 1   🟠 严重: 0   🟡 一般: 2   🟢 提示: 3    ║
 ║                                                         ║
 ║  构建: ✅     单元测试: ✅ (42/42)    设备: ✅          ║
+║  性能: ✅     无障碍: ⚠️ 2 warnings                       ║
 ║                                                         ║
 ║  完整报告: docs/reviews/plan-auth-login-flow-qa-report.md║
 ╚═══════════════════════════════════════════════════════════╝
@@ -913,7 +1112,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 
 ---
 
-## Phase 4: 修复循环
+## Phase 6: 修复循环
 
 ### 步骤 1: 问题分类
 
@@ -935,6 +1134,9 @@ adb logcat -d | grep -i "ANR" | tail -5
 4. **硬编码字符串** — 抽取到 strings.xml
 5. **硬编码尺寸** — 抽取到 dimens.xml
 6. **覆盖率缺口** — 为低于阈值的文件生成补充测试，重新验证覆盖率
+7. **缺少 contentDescription** — 为 ImageView/Icon 添加 contentDescription (Layer 4)
+8. **缺少 LazyColumn key** — 为 LazyColumn/LazyRow items 添加 key 参数 (Layer 3)
+9. **缺少 @Stable 注解** — 为 Composable 参数 data class 添加 @Stable (Layer 3)
 
 ```bash
 # 示例: 创建缺失的字符串资源
@@ -949,6 +1151,8 @@ adb logcat -d | grep -i "ANR" | tail -5
 - 修复资源问题 → 重新运行 Layer 1 资源完整性检查
 - 修复 lint 问题 → 重新运行 `./gradlew lintDebug`
 - 修复编译问题 → 重新运行 `./gradlew assembleDebug`
+- 修复 a11y 问题 (contentDescription 等) → 重新运行 Layer 4 无障碍检测
+- 修复 Compose 性能问题 (LazyColumn key 等) → 重新运行 Layer 3C 静态检查
 
 ### 步骤 3: 复杂问题处理
 
@@ -1073,12 +1277,14 @@ QA 完成后，将发现的典型 bug 模式记录到学习系统以供未来 se
 | 当前分支无变更 (与基准相同) | 提示: "当前分支无变更，无需 QA" |
 | 构建失败 | 记录为 🔴 阻塞，不执行后续测试 |
 | 单元测试超时 (>10 分钟) | 终止测试，标记为超时 |
-| adb 设备未授权 | 提示: "请在设备上授权 USB 调试"，跳过 Layer 3 |
+| adb 设备未授权 | 提示: "请在设备上授权 USB 调试"，跳过 Layer 5 |
 | APK 安装失败 (签名冲突) | 先 `adb uninstall <package>` 再重试 |
 | docs/reviews 目录不存在 | 自动创建 |
 | 与 android-investigate 集成 | 发现复杂 bug 时，建议调用 android-investigate 进行根因分析 |
 | TDD 被跳过的业务任务 | 覆盖率阈值提升至 90%，Layer 2.3 强制执行，记录警告 |
 | 无 JaCoCo 配置 | 提示配置 JaCoCo 以启用覆盖率门禁，使用测试通过率替代 |
+| 性能基准超时 (--profile 超过 10 分钟) | 终止构建性能测试，标记为超时 |
+| 无 res/layout 目录 (纯 Compose 项目) | Layer 4A 静态分析跳过 XML 检查，仅执行 4B Compose 检查 |
 
 ---
 
