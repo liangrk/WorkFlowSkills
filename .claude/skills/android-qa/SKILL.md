@@ -3,7 +3,8 @@ name: android-qa
 description: |
   Android QA 测试 skill。在 worktree-runner plan 执行完毕后，
   对已实现的功能进行功能级验证。包括静态分析、日志检查、
-  构建验证、性能基准测试、无障碍检测、以及基于 adb 的设备/模拟器测试。
+  构建验证、性能基准测试、无障碍检测、基于 adb 的设备/模拟器测试，
+  以及基于 PRD 的需求验收。
   产出 bug 报告和修复建议。
   适用场景: 功能完成后验证、回归测试、上线前 QA。
 voice-triggers:
@@ -17,7 +18,7 @@ voice-triggers:
 ## 概述
 
 对当前分支或指定分支的变更进行分层 QA 测试，产出结构化 bug 报告。
-静态分析 + 构建/单元测试 + 性能基准测试 + 无障碍检测 + 设备测试五层覆盖，自动修复简单问题。
+静态分析 + 构建/单元测试 + 性能基准测试 + 无障碍检测 + 设备测试 + PRD 验收六层覆盖，自动修复简单问题。
 
 **启动时声明:** "我正在使用 android-qa skill。"
 
@@ -228,6 +229,33 @@ QA 将对这些任务加强验证:
 - `TDD_REPORT_PATH`: 报告文件路径
 - `TDD_SKIPPED_BUSINESS_TASKS`: 被跳过的业务任务数
 - `COVERAGE_THRESHOLD`: 80 (默认) 或 90 (有 TDD 被跳过的业务任务时)
+
+### 步骤 6: PRD 加载
+
+查找当前分支关联的 plan 文件:
+```bash
+# Find plan files
+ls docs/plans/*.md 2>/dev/null
+
+# Check if any plan file contains a PRD section
+grep -l "^## PRD$" docs/plans/*.md 2>/dev/null
+```
+
+若找到包含 PRD 的 plan 文件:
+1. 提取 PRD section
+2. 解析功能需求 (FR-N)、验收标准 (AC-N)、明确不做列表
+3. 存储为后续 Phase 的输入
+
+若未找到:
+- 输出 "[QA] 未找到 PRD，跳过需求验收。建议使用 /android-autoplan 生成含 PRD 的 plan。"
+- 后续 PRD 验证 Phase 自动跳过
+
+设置以下变量供后续阶段使用:
+- `PRD_LOADED`: "true" / "false"
+- `PRD_FILE_PATH`: PRD 所在的 plan 文件路径
+- `PRD_AC_LIST`: 解析出的验收标准列表 (AC-N)
+- `PRD_FR_LIST`: 解析出的功能需求列表 (FR-N)
+- `PRD_EXCLUSIONS`: 解析出的明确不做列表
 
 ---
 
@@ -972,11 +1000,73 @@ adb logcat -d | grep -i "ANR" | tail -5
 
 ---
 
-## Phase 5: Bug 报告
+## Phase 3: PRD 验收
+
+若 Phase 0 未加载 PRD (`PRD_LOADED` != "true")，跳过此 Phase。
+
+对每条验收标准 (AC-N):
+
+### Step 1: 自动验证
+
+```bash
+# 检查相关测试是否覆盖该 AC
+grep -r "AC-N\|<AC关键词>" app/src/test --include="*.kt" -l 2>/dev/null
+
+# 检查相关功能代码是否实现
+grep -r "<FR关键词>" app/src/main --include="*.kt" -l 2>/dev/null
+```
+
+AC 关键词匹配采用灵活策略: 对 AC 描述中的核心功能词汇进行子串匹配，而非精确匹配。
+
+### Step 2: 逐条判定
+
+对每条 AC:
+- ✓ PASS: 有测试覆盖 + 功能代码存在 + 测试通过
+- ⚠ PARTIAL: 功能代码存在但测试不足，或实现不完整
+- ✗ FAIL: 无功能代码或功能代码明显不满足要求
+- ⊘ SKIP: 依赖外部条件（如需真机网络），当前环境无法验证
+
+### Step 3: 明确不做验证
+
+检查"明确不做"列表中的项是否真的没有被实现:
+```bash
+# 对每个排除项，检查是否有相关代码
+grep -r "<排除项关键词>" app/src/main --include="*.kt" 2>/dev/null
+```
+
+若有代码实现排除项 → 标记为 ⚠ 范围蔓延风险
+
+### Step 4: 输出 PRD 验收报告
+
+```
+[QA] PRD 验收报告
+
+需求覆盖: 8/10 通过, 1 部分实现, 1 未实现
+非功能需求: 2/3 通过, 1 无法验证
+明确不做: 3/3 未实现 ✓ (无范围蔓延)
+
+详情:
+✓ AC-1 [FR-1]: 用户登录 — 测试覆盖 ✓ 功能完整
+✓ AC-2 [FR-2]: 错误提示 — 测试覆盖 ✓ 功能完整
+⚠ AC-3 [FR-2]: 错误分类 — 功能代码存在但只显示通用错误，未区分类型
+✗ AC-5 [FR-3]: 记住我 — 无功能代码
+⊘ AC-7 [NFR-1]: 响应时间 <500ms — 需要真实网络环境验证
+```
+
+### Step 5: 总结建议
+
+- 若有 ✗ → 建议补充实现或创建新 plan
+- 若有 ⚠ → 列出需要完善的具体项
+- 若有 ⊘ → 列出需要手动验证的项
+- 全部 ✓ → "PRD 验收通过"
+
+---
+
+## Phase 4: Bug 报告
 
 ### 步骤 1: 汇总所有层的结果
 
-合并 Layer 1、Layer 2、Layer 3、Layer 4、Layer 5 的发现，按严重程度分类。
+合并 Layer 1、Layer 2、Layer 3、Layer 4、Layer 5、Phase 3 (PRD 验收) 的发现，按严重程度分类。
 
 **严重程度定义:**
 
@@ -1032,6 +1122,28 @@ adb logcat -d | grep -i "ANR" | tail -5
 | 分支覆盖率 | XX% | 75% | ✅/❌ |
 | 关键路径覆盖率 | XX% | 90% | ✅/❌ |
 
+## PRD 验收
+
+> 仅当 Phase 0 加载了 PRD 时显示此章节
+
+| 指标 | 结果 |
+|------|------|
+| PRD 来源 | <plan 文件路径> 或 "未找到 PRD" |
+| 需求覆盖 | N/M 通过, N 部分实现, N 未实现 |
+| 非功能需求 | N/M 通过, N 无法验证 |
+| 明确不做 | N/N 未实现 (无范围蔓延) / N 范围蔓延 |
+
+### 验收详情
+
+✓ AC-1 [FR-1]: <AC 描述> — 测试覆盖 ✓ 功能完整
+⚠ AC-3 [FR-2]: <AC 描述> — <部分实现原因>
+✗ AC-5 [FR-3]: <AC 描述> — <未实现原因>
+⊘ AC-7 [NFR-1]: <AC 描述> — <无法验证原因>
+
+### 范围蔓延风险
+
+(如有排除项被实现，列出具体项和文件位置)
+
 ## Bug 列表
 
 ### 🔴 阻塞
@@ -1082,6 +1194,9 @@ adb logcat -d | grep -i "ANR" | tail -5
 ### Layer 5: 设备测试
 (设备测试详细结果，含截图路径)
 
+### PRD 验收
+(PRD 验收详细结果，仅当 PRD 已加载时显示)
+
 ## 修复建议优先级
 
 1. BUG-001: <标题> — <预估工作量: 小/中/大>
@@ -1105,6 +1220,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 ║                                                         ║
 ║  构建: ✅     单元测试: ✅ (42/42)    设备: ✅          ║
 ║  性能: ✅     无障碍: ⚠️ 2 warnings                       ║
+║  PRD: ✅ 8/10 通过 / ⚠️ 1 部分实现 / ✗ 1 未实现          ║
 ║                                                         ║
 ║  完整报告: docs/reviews/plan-auth-login-flow-qa-report.md║
 ╚═══════════════════════════════════════════════════════════╝
@@ -1112,17 +1228,18 @@ adb logcat -d | grep -i "ANR" | tail -5
 
 ---
 
-## Phase 6: 修复循环
+## Phase 5: 修复循环
 
 ### 步骤 1: 问题分类
 
-将 Bug 分为两类:
+将 Bug 分为三类:
 
 | 类别 | 条件 | 处理方式 |
 |------|------|----------|
 | 自动修复 | 缺少资源文件、lint 警告、未使用的导入、简单硬编码 | 直接修复 |
 | 需确认 | 逻辑错误、架构问题、需要业务判断的修复 | 询问用户 |
 | 覆盖率不达标 | 自动补测试 → 重新验证覆盖率 | 新增 |
+| PRD 验收 ✗ | 验收标准未通过 (Phase 3) | 尝试补充实现，重新验证 |
 
 ### 步骤 2: 自动修复
 
@@ -1137,6 +1254,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 7. **缺少 contentDescription** — 为 ImageView/Icon 添加 contentDescription (Layer 4)
 8. **缺少 LazyColumn key** — 为 LazyColumn/LazyRow items 添加 key 参数 (Layer 3)
 9. **缺少 @Stable 注解** — 为 Composable 参数 data class 添加 @Stable (Layer 3)
+10. **PRD 验收 ✗ 项** — 对 Phase 3 中判定为 ✗ FAIL 的 AC，尝试补充实现缺失的功能代码 (Phase 3)
 
 ```bash
 # 示例: 创建缺失的字符串资源
@@ -1153,6 +1271,7 @@ adb logcat -d | grep -i "ANR" | tail -5
 - 修复编译问题 → 重新运行 `./gradlew assembleDebug`
 - 修复 a11y 问题 (contentDescription 等) → 重新运行 Layer 4 无障碍检测
 - 修复 Compose 性能问题 (LazyColumn key 等) → 重新运行 Layer 3C 静态检查
+- 修复 PRD 验收 ✗ 项 → 重新运行 Phase 3 PRD 验收，验证对应的 AC 是否从 ✗ 升级为 ✓ 或 ⚠
 
 ### 步骤 3: 复杂问题处理
 
@@ -1177,17 +1296,19 @@ adb logcat -d | grep -i "ANR" | tail -5
 ```
 修复循环: 第 1/3 轮
 
-本轮修复: 3 个问题
+本轮修复: 4 个问题
   ✅ 自动修复: BUG-003 (缺少资源)
   ✅ 自动修复: TIP-001 (未使用导入)
   ✅ 用户确认: BUG-001 (逻辑错误)
+  ✅ PRD 修复: AC-5 [FR-3] 记住我 — 补充功能代码
 
 重新验证...
   构建: ✅
   Lint: ✅ (0 Warning)
   单元测试: ✅ (42/42)
+  PRD 验收: 9/10 通过, 1 部分实现, 0 未实现
 
-剩余问题: 0
+剩余问题: 1 (AC-3 部分实现，需人工确认)
 修复循环完成。
 ```
 
@@ -1285,6 +1406,7 @@ QA 完成后，将发现的典型 bug 模式记录到学习系统以供未来 se
 | 无 JaCoCo 配置 | 提示配置 JaCoCo 以启用覆盖率门禁，使用测试通过率替代 |
 | 性能基准超时 (--profile 超过 10 分钟) | 终止构建性能测试，标记为超时 |
 | 无 res/layout 目录 (纯 Compose 项目) | Layer 4A 静态分析跳过 XML 检查，仅执行 4B Compose 检查 |
+| 未找到 PRD | Phase 0 输出提示，Phase 3 PRD 验收自动跳过，其余 QA 正常执行 |
 
 ---
 

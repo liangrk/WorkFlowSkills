@@ -59,6 +59,35 @@ voice-triggers:
 
 **目标:** 建立问题的完整上下文，为后续排查提供线索。
 
+### 前置: 性能问题路由
+
+在开始调试排查之前，检查输入是否为性能类问题。
+
+**性能类关键词检测:**
+
+| 类别 | 关键词 |
+|------|--------|
+| ANR | ANR / 无响应 / not responding / 应用卡死 |
+| 内存 | 内存 / OOM / memory / leak / 泄漏 |
+| 启动 | 启动 / 冷启动 / startup / 启动慢 |
+| 帧率 | 卡顿 / 帧率 / jank / 掉帧 / 流畅度 |
+| 电量 | 电量 / 电池 / battery / 耗电 |
+| 网络 | 网络 / 请求慢 / API 慢 / 超时 |
+| 包大小 | 大小 / APK / 包大小 / 安装包 |
+| 通用 | 变慢 / 性能 / performance |
+
+**路由逻辑:**
+
+若用户输入匹配到上述性能类关键词:
+
+1. 提示用户: "检测到性能类问题，建议使用 /android-performance 进行专项分析。"
+2. 使用 AskUserQuestion 提供选择:
+   - A) 使用 /android-performance (推荐)
+   - B) 继续使用 /android-investigate (通用调试)
+
+若选 A: 使用 Skill tool 调用 `android-performance`，传入相同的参数。
+若选 B: 继续当前 investigate 流程，跳过此路由步骤。
+
 ### 前置: 加载历史学习记录
 
 **前置引导:** 若学习记录为空，先运行预加载:
