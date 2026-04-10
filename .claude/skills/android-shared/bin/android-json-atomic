@@ -17,7 +17,8 @@ TARGET="${1:?Usage: android-json-atomic <filepath>}"
 INPUT=$(cat)
 
 # Validate JSON and pretty-print in one pass
-VALIDATED=$("$PYTHON" -c "
+# NOTE: Use echo+pipe instead of <<< (here-string) for Windows Git Bash compatibility
+VALIDATED=$(printf '%s\n' "$INPUT" | "$PYTHON" -c "
 import sys, json
 try:
     data = json.loads(sys.stdin.read())
@@ -25,12 +26,13 @@ try:
 except json.JSONDecodeError as e:
     print('ERROR: invalid JSON: {}'.format(e), file=sys.stderr)
     sys.exit(1)
-" <<< "$INPUT")
+")
 
 # Determine temp file in same directory (ensures same filesystem for atomic rename)
 TARGET_DIR=$(dirname "$TARGET")
 BASENAME=$(basename "$TARGET")
-TMPFILE="$TARGET_DIR/.${BASENAME}.tmp.$$"
+# Use mktemp for cross-platform temp file generation (avoids $$ issues on Windows)
+TMPFILE=$(mktemp "${TARGET_DIR}/.${BASENAME}.tmp.XXXXXX")
 
 # Write validated JSON to temp file
 printf '%s\n' "$VALIDATED" > "$TMPFILE"

@@ -24,6 +24,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 | 文档更新 | `android-document-release` | "更新文档"、"文档同步" |
 | 提交、push、创建 PR、合并分支 | `android-ship` | "提交"、"push"、"创建 PR"、"ship"、"合并分支"、"合并到 master" |
 | 学习记录、知识管理 | `android-learn` | "学习记录"、"知识"、"learnings" |
+| Git 合并冲突、commit 链手术、合并验收 | `android-git-surgery` | "合并冲突"、"解决冲突"、"移除commit"、"git冲突"、"rebase冲突"、"合并影响" |
 
 ## Conventions
 

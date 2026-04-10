@@ -110,6 +110,16 @@ fi
 # Current branch
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "BRANCH: $CURRENT_BRANCH"
+
+# Worktree detection: if inside a worktree, use --no-daemon to avoid daemon lock conflicts
+GIT_WORKTREE=$(git rev-parse --git-common-dir 2>/dev/null)
+if [ "$GIT_WORKTREE" != ".git" ] && [ -n "$GIT_WORKTREE" ]; then
+  echo "WORKTREE: detected (using --no-daemon for Gradle)"
+  GRADLE_OPTS="--no-daemon"
+else
+  echo "WORKTREE: no"
+  GRADLE_OPTS=""
+fi
 ```
 
 ### 步骤 2: 检测测试框架
@@ -461,7 +471,7 @@ testFixtures:     未检测到
 
 4. 运行验证:
    ```bash
-   ./gradlew testDebugUnitTest --tests ".*SmokeTest" 2>&1 | tail -10
+   ./gradlew testDebugUnitTest $GRADLE_OPTS --tests ".*SmokeTest" 2>&1 | tail -10
    ```
 
 5. 验证通过后，提示: "测试基础设施配置完成。可以继续 TDD 流程。"
@@ -708,7 +718,7 @@ class LoginViewModelTest {
 
 ```bash
 # JVM 单元测试
-./gradlew test<Variant>UnitTest 2>&1
+./gradlew test<Variant>UnitTest $GRADLE_OPTS 2>&1
 ```
 
 **RED 确认规则:**
@@ -723,7 +733,7 @@ class LoginViewModelTest {
 
 **如果存在 Instrumented 测试:**
 ```bash
-./gradlew connected<Variant>AndroidTest 2>&1
+./gradlew connected<Variant>AndroidTest $GRADLE_OPTS 2>&1
 ```
 
 **注意:** Instrumented 测试需要设备/模拟器。如果没有可用设备，跳过并记录:
@@ -784,7 +794,7 @@ echo "TDD savepoint created"
 ### 步骤 2: 运行测试验证 GREEN
 
 ```bash
-./gradlew test<Variant>UnitTest 2>&1
+./gradlew test<Variant>UnitTest $GRADLE_OPTS 2>&1
 ```
 
 **GREEN 确认规则:**
@@ -856,7 +866,7 @@ JVM 单元测试: N/N passed ✅
 ### 步骤 3: 运行测试确认仍为 GREEN
 
 ```bash
-./gradlew test<Variant>UnitTest 2>&1
+./gradlew test<Variant>UnitTest $GRADLE_OPTS 2>&1
 ```
 
 **如果测试失败:** 立即回退重构，记录原因。
@@ -877,7 +887,7 @@ JVM 单元测试: N/N passed ✅
 
 ```bash
 # 运行测试并生成覆盖率报告
-./gradlew test<Variant>UnitTest 2>&1
+./gradlew test<Variant>UnitTest $GRADLE_OPTS 2>&1
 
 # 查找 JaCoCo XML 报告
 JACOCO_XML=$(find "$PROJECT_ROOT" -path "*/reports/jacoco/*/*.xml" -type f 2>/dev/null | head -1)
@@ -927,7 +937,7 @@ fi
 
 ```bash
 # 补充测试后重新运行覆盖率
-./gradlew test<Variant>UnitTest 2>&1
+./gradlew test<Variant>UnitTest $GRADLE_OPTS 2>&1
 ```
 
 **最多补 2 轮。** 如果 2 轮后仍不达标:
@@ -1388,3 +1398,46 @@ android-qa (后续验证，读取 TDD 结果)
 | 修复循环 4 轮后仍失败 | 恢复到 TDD 前状态 (`git stash pop` 恢复 savepoint)，输出完整诊断报告。已通过的测试和实现代码保留在工作区供用户参考 |
 | 用户中断修复循环 | 保存当前状态，记录到 tasks.json |
 | worktree-runner 未找到 tasks.json | 以独立模式运行，不更新 TDD 状态 |
+| Gradle 依赖拉取失败 (网络问题) | 切换到阿里云镜像后重试 (见下方 Gradle 网络回退策略) |
+
+### Gradle 网络回退策略
+
+当运行 `./gradlew` 命令时，如果遇到 AGP 或其他依赖因网络问题无法拉取的错误
+（如 `Connection timed out`、`Unable to resolve`、`Could not GET` 等），自动切换到阿里云镜像:
+
+1. **检测到网络拉取失败后**，在项目根目录的 `settings.gradle` 或 `settings.gradle.kts` 中
+   配置阿里云 Maven 镜像:
+
+   **settings.gradle.kts:**
+   ```kotlin
+   dependencyResolutionManagement {
+       // repositoriesMode 保留项目原有配置，不要覆盖
+       repositories {
+           maven { url = uri("https://maven.aliyun.com/repository/google") }
+           maven { url = uri("https://maven.aliyun.com/repository/central") }
+           maven { url = uri("https://maven.aliyun.com/repository/public") }
+           google()
+           mavenCentral()
+       }
+   }
+   ```
+
+   **settings.gradle (Groovy):**
+   ```groovy
+   dependencyResolutionManagement {
+       // repositoriesMode 保留项目原有配置，不要覆盖
+       repositories {
+           maven { url 'https://maven.aliyun.com/repository/google' }
+           maven { url 'https://maven.aliyun.com/repository/central' }
+           maven { url 'https://maven.aliyun.com/repository/public' }
+           google()
+           mavenCentral()
+       }
+   }
+   ```
+
+2. 阿里云镜像仓库放在 `google()` 和 `mavenCentral()` **之前**，确保优先从镜像拉取。
+3. 配置完成后重新运行失败的 Gradle 命令。
+4. **注意:** 仅在检测到网络拉取失败时才添加镜像配置，不要主动修改用户已有的仓库配置。
+   不要覆盖项目原有的 `repositoriesMode` 设置。
+5. **回滚:** 如果添加镜像后仍然失败，移除镜像配置恢复原状，提示用户检查网络代理或 VPN 设置。

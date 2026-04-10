@@ -49,7 +49,142 @@ if [ ! -f "$PROJECT_ROOT/build.gradle" ] && [ ! -f "$PROJECT_ROOT/build.gradle.k
 fi
 ```
 
-### 步骤 2: 检查已有档案
+### 步骤 2: 检测 Android SDK/NDK 环境
+
+检测本地 Android 开发环境配置，结果写入项目档案的 `sdk` 字段。
+
+```bash
+# --- ANDROID_HOME / ANDROID_SDK_ROOT ---
+if [ -n "$ANDROID_HOME" ]; then
+  echo "ANDROID_HOME: $ANDROID_HOME"
+elif [ -n "$ANDROID_SDK_ROOT" ]; then
+  echo "ANDROID_HOME: $ANDROID_SDK_ROOT"
+else
+  # 常见默认路径探测
+  for candidate in \
+    "$HOME/AppData/Local/Android/Sdk" \
+    "$HOME/Library/Android/sdk" \
+    "$HOME/Android/Sdk" \
+    "/usr/lib/android-sdk" \
+    "/opt/android-sdk"; do
+    if [ -d "$candidate" ]; then
+      ANDROID_HOME="$candidate"
+      echo "ANDROID_HOME: $ANDROID_HOME (自动探测)"
+      break
+    fi
+  done
+  [ -z "$ANDROID_HOME" ] && echo "ANDROID_HOME: NOT_FOUND"
+fi
+
+SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+```
+
+```bash
+# --- 已安装的 SDK Platform 版本 ---
+if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/platforms" ]; then
+  echo "=== SDK Platforms ==="
+  ls -1 "$SDK_ROOT/platforms" 2>/dev/null | sort -V | while read -r p; do
+    echo "  $p"
+  done
+else
+  echo "SDK Platforms: 无法读取 (ANDROID_HOME 未设置或目录不存在)"
+fi
+```
+
+```bash
+# --- 已安装的 Build Tools 版本 ---
+if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ]; then
+  echo "=== Build Tools ==="
+  ls -1 "$SDK_ROOT/build-tools" 2>/dev/null | sort -V
+else
+  echo "Build Tools: 无法读取"
+fi
+```
+
+```bash
+# --- 已安装的 NDK 版本 ---
+if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/ndk" ]; then
+  echo "=== NDK Versions ==="
+  ls -1 "$SDK_ROOT/ndk" 2>/dev/null | sort -V
+else
+  echo "NDK: 未安装或目录不存在"
+fi
+```
+
+```bash
+# --- CMake 版本 (NDK 构建常用) ---
+if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/cmake" ]; then
+  echo "=== CMake Versions ==="
+  ls -1 "$SDK_ROOT/cmake" 2>/dev/null | sort -V
+else
+  echo "CMake: 未安装"
+fi
+```
+
+```bash
+# --- 关键 SDK 组件检查 ---
+echo "=== 关键组件检查 ==="
+if [ -z "$SDK_ROOT" ]; then
+  echo "  ANDROID_HOME 未设置，跳过组件检查"
+else
+COMPONENTS=(
+  "platform-tools:adb"
+  "cmdline-tools:latest"
+  "emulator:模拟器"
+  "ndk-bundle:NDK (legacy)"
+)
+for comp in "${COMPONENTS[@]}"; do
+  name="${comp%%:*}"
+  desc="${comp##*:}"
+  dir="$SDK_ROOT/$name"
+  if [ -d "$dir" ]; then
+    echo "  ✅ $desc: 已安装"
+  else
+    echo "  ❌ $desc: 未安装"
+  fi
+done
+fi
+```
+
+**检测结果输出示例:**
+```
+=== Android SDK/NDK 环境 ===
+ANDROID_HOME: C:\Users\xxx\AppData\Local\Android\Sdk
+SDK Platforms: android-33, android-34, android-35
+Build Tools: 34.0.0, 35.0.0
+NDK: 26.1.10909125, 27.0.12077973
+CMake: 3.22.1, 3.30.5
+
+关键组件:
+  ✅ adb: 已安装
+  ✅ cmdline-tools: 已安装
+  ❌ 模拟器: 未安装
+```
+
+**写入档案:** 将以上检测结果以如下结构写入 `.android-project-profile.json` 的 `sdk` 字段:
+```json
+{
+  "sdk": {
+    "android_home": "/path/to/sdk",
+    "platforms": ["android-33", "android-34", "android-35"],
+    "build_tools": ["34.0.0", "35.0.0"],
+    "ndk_versions": ["26.1.10909125", "27.0.12077973"],
+    "cmake_versions": ["3.22.1", "3.30.5"],
+    "components": {
+      "platform-tools": true,
+      "cmdline-tools": true,
+      "emulator": false
+    }
+  }
+}
+```
+
+**环境异常提示:**
+- 如果 `ANDROID_HOME` 未设置且自动探测也失败: 提示用户配置 `ANDROID_HOME` 环境变量
+- 如果项目 `build.gradle` 中指定的 `compileSdk` 对应的 platform 未安装: 提示通过 `sdkmanager` 安装
+- 如果项目使用了 NDK (检测到 `externalNativeBuild` 配置) 但本地未安装 NDK: 提示安装对应版本
+
+### 步骤 3: 检查已有档案
 
 ```bash
 PROFILE_PATH="$PROJECT_ROOT/.android-project-profile.json"
@@ -62,7 +197,7 @@ if [ -f "$PROFILE_PATH" ] && [ "${1:-}" != "--force" ]; then
 
   echo "=== 已有项目档案 ==="
   echo "档案路径: $PROFILE_PATH"
-  echo "档案年龄: ${PROFILE_DAYS} 天前生成"
+  echo "档案年龄: ${PROFILE_AGE_DAYS} 天前生成"
 
   # 读取并显示档案摘要
   cat "$PROFILE_PATH"
@@ -199,6 +334,7 @@ fi
 | 部分 | 内容 | 下游使用者 |
 |------|------|-----------|
 | meta | 项目名、包名、模块、SDK 版本、构建系统 | 所有 skill |
+| sdk | ANDROID_HOME、已安装 Platform/Build Tools/NDK/CMake、关键组件 | tdd, worktree-runner, benchmark, performance |
 | dependencies | UI/网络/DI/数据库/测试等全部依赖 | design-review, autoplan, tdd |
 | architecture | 架构模式、分层、状态管理、导航 | code-review, autoplan |
 | components | 自定义 Composable/View、基类、Repository | design-review (核心) |
@@ -233,6 +369,7 @@ fi
 | 场景 | 处理方式 |
 |------|----------|
 | 不在 Android 项目中 | 报错: "需要 Android 项目" |
+| ANDROID_HOME 未设置且探测失败 | 提示配置 ANDROID_HOME 环境变量，继续生成档案但 sdk 字段标记为 NOT_FOUND |
 | python3/python 不可用 | 报错: "需要 python3 或 python 用于 JSON 输出" |
 | 扫描脚本执行失败 | 显示错误信息，建议手动检查 build.gradle |
 | 已有档案且无 --force | 显示档案年龄和摘要，询问是否重新扫描 |
