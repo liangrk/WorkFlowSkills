@@ -589,7 +589,8 @@ AskUserQuestion:
 选 E: 将执行中遇到的问题标注到 plan 文件中，然后调用
   android-autoplan 重新审查。流程:
   1. 从 `plan_source.ref` 获取原始 plan 文件名 (如 `2026-04-10-auth.md`)
-  2. 将问题写入 `docs/plans/<plan-filename>-execution-issues.md`
+  2. 从 `plan_source.ref` 提取 basename (如 `2026-04-10-auth.md` → `2026-04-10-auth`)，
+     将问题写入 `docs/plans/<plan-basename>-execution-issues.md`
 
 **execution-issues 文件格式:**
 

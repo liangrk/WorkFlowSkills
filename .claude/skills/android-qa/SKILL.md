@@ -534,8 +534,9 @@ if [ "$TDD_ALL_COVERED" = "true" ] && [ -n "$TDD_REPORT_PATH" ] && [ -f "$TDD_RE
   echo "=== 覆盖率门禁 ==="
   echo "来源: TDD 报告 ($TDD_REPORT_PATH)"
   echo "总体覆盖率: ${TDD_AVG_COVERAGE}% (阈值: ${COVERAGE_THRESHOLD}%)"
-  echo "结果: $(if [ -n "$TDD_AVG_COVERAGE" ] && [ "$TDD_AVG_COVERAGE" != "null" ] && [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
-  COVERAGE_GATE_PASSED=$(if [ -n "$TDD_AVG_COVERAGE" ] && [ "$TDD_AVG_COVERAGE" != "null" ] && [ "$TDD_AVG_COVERAGE" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "true"; else echo "false"; fi)
+  COVERAGE_INT=$(printf "%.0f" "$TDD_AVG_COVERAGE" 2>/dev/null || echo "$TDD_AVG_COVERAGE")
+  echo "结果: $(if [ -n "$COVERAGE_INT" ] && [ "$COVERAGE_INT" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
+  COVERAGE_GATE_PASSED=$(if [ -n "$COVERAGE_INT" ] && [ "$COVERAGE_INT" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "true"; else echo "false"; fi)
 else
   echo "=== 覆盖率门禁 ==="
   

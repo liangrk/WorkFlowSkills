@@ -158,7 +158,7 @@ grep -rl "Reducer\|Action\|Event" "$PROJECT_ROOT/app/src" 2>/dev/null | head -5
 
 ```bash
 # 检测 Activity/Fragment 命名
-find "$PROJECT_ROOT/app/src/main/java" -o -name "$PROJECT_ROOT/app/src/main/kotlin" 2>/dev/null | \
+find "$PROJECT_ROOT/app/src/main/java" "$PROJECT_ROOT/app/src/main/kotlin" -type f 2>/dev/null | \
   xargs grep -l "Activity\|Fragment" 2>/dev/null | head -10
 
 # 检测资源命名

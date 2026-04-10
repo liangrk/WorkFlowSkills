@@ -93,7 +93,7 @@
 /android-brainstorm
 ```
 
-输出: 思考文档 (`docs/designs/<slug>-brainstorm.md`)，包含:
+输出: 思考文档 (`docs/thinking/<date>-<slug>.md`)，包含:
 - 目标和约束
 - 技术方向
 - 边界和假设
@@ -210,7 +210,7 @@
 3. **逻辑层**: 状态转换、条件分支、边界条件
 4. **平台层**: 生命周期、权限、内存、线程、兼容性
 
-产出: `docs/reviews/investigate-<timestamp>.md`
+产出: `docs/reviews/<branch>-investigate-report.md`
 
 ### 8. 检查点 (android-checkpoint)
 
@@ -264,12 +264,12 @@ autoplan 在关键节点自动保存检查点:
 │   │   ├── <slug>.md                        ← autoplan 产出
 │   │   ├── <slug>-design-spec.md              ← design-review 产出
 │   │   └── <slug>-test-plan.md               ← eng review 产出
-│   ├── designs/
-│   │   └── <slug>-brainstorm.md              ← brainstorm 产出
+│   ├── thinking/
+│   │   └── <date>-<slug>.md                 ← brainstorm 产出
 │   └── reviews/
 │       ├── <branch>-code-review.md           ← code-review 产出
 │       ├── <branch>-qa-report.md             ← qa 产出
-│       ├── investigate-<timestamp>.md         ← investigate 产出
+│       ├── <branch>-investigate-report.md     ← investigate 产出
 │       ├── <branch>-doc-update.md           ← document-release 产出
 │       └── <slug>-execution-issues.md        ← 反馈回路 (worktree→autoplan)
 ├── .claude/

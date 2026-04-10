@@ -317,11 +317,13 @@ USER_CHALLENGES=$(grep -A 5 "用户挑战" "$LATEST_PLAN" 2>/dev/null | head -20
 阶段判断逻辑:
 - 如果 LATEST_PLAN == null         → "未开始 (Phase 0)"
 - 如果 CEO_SUMMARY == null         → "Phase 1 完成 (Plan 已生成)"
-- 如果 DESIGN_SUMMARY == null      → "Phase 2 完成 (CEO Review 已通过)"
-- 如果 ARCH_CONCLUSION == null     → "Phase 3 完成 (Design Review 已通过)"
-- 如果 DX_SUMMARY == null          → "Phase 4 完成 (Eng Review 已通过)"
+- 如果 ARCH_CONCLUSION == null     → "Phase 2 完成 (CEO Review 已通过)"
+- 如果 DX_SUMMARY == null          → "Phase 4+3.5 完成 (Eng+DX Review 已通过，Design Review 按需)"
 - 如果有 "审批摘要" 关键词          → "Phase 5 完成 (最终审批前)"
 - 如果有 "审批通过" 关键词          → "已批准 (待执行)"
+
+> Design Review (Phase 3) 是可选的，跳过时 DESIGN_SUMMARY 为 null。
+> 因此阶段判断跳过 DESIGN_SUMMARY 检查，直接从 CEO → ARCH → DX 顺序推断。
 ```
 
 ### 步骤 10: 采集待处理事项
