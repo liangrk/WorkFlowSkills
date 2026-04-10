@@ -1,0 +1,47 @@
+#!/bin/bash
+# android-json-atomic: Write JSON to a file atomically
+# Usage: echo '<json>' | android-json-atomic <filepath>
+# Reads JSON from stdin, validates with python, writes atomically via temp+rename.
+set -euo pipefail
+
+# Python3/python compatibility
+PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+if [ -z "$PYTHON" ]; then
+  echo "ERROR: python3/python not found" >&2
+  exit 1
+fi
+
+TARGET="${1:?Usage: android-json-atomic <filepath>}"
+
+# Read full JSON from stdin
+INPUT=$(cat)
+
+# Validate JSON and pretty-print in one pass
+VALIDATED=$("$PYTHON" -c "
+import sys, json
+try:
+    data = json.loads(sys.stdin.read())
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+except json.JSONDecodeError as e:
+    print('ERROR: invalid JSON: {}'.format(e), file=sys.stderr)
+    sys.exit(1)
+" <<< "$INPUT")
+
+# Determine temp file in same directory (ensures same filesystem for atomic rename)
+TARGET_DIR=$(dirname "$TARGET")
+BASENAME=$(basename "$TARGET")
+TMPFILE="$TARGET_DIR/.${BASENAME}.tmp.$$"
+
+# Write validated JSON to temp file
+printf '%s\n' "$VALIDATED" > "$TMPFILE"
+
+# Atomic rename (same filesystem guaranteed)
+if mv "$TMPFILE" "$TARGET" 2>/dev/null; then
+  echo "OK: $TARGET written atomically"
+else
+  # Fallback: direct write (may not be atomic but better than losing data)
+  echo "WARNING: atomic rename failed, falling back to direct write" >&2
+  printf '%s\n' "$VALIDATED" > "$TARGET"
+  rm -f "$TMPFILE" 2>/dev/null || true
+  echo "OK: $TARGET written (non-atomic fallback)"
+fi

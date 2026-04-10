@@ -1,0 +1,149 @@
+#!/bin/bash
+# android-learnings-bootstrap: Seed learnings.jsonl with preloaded Android pitfalls
+# Usage: android-learnings-bootstrap [--force]
+#   --force: Re-seed even if file exists (append, don't overwrite)
+#   Without --force: Only seed if file doesn't exist or is empty
+set -euo pipefail
+
+FORCE="no"
+if [ "${1:-}" = "--force" ]; then
+  FORCE="yes"
+fi
+
+# Resolve the log script path relative to this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_SCRIPT="$SCRIPT_DIR/android-learnings-log"
+
+if [ ! -f "$LOG_SCRIPT" ]; then
+  echo "ERROR: android-learnings-log not found at $LOG_SCRIPT" >&2
+  exit 1
+fi
+
+# Compute slug (same logic as android-learnings-log)
+SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*/||;s|\.git$||;s|/$||' | tail -1)
+[ -z "$SLUG" ] && SLUG=$(basename "$(pwd)")
+LEARNINGS_FILE="$HOME/.android-skills/projects/$SLUG/learnings.jsonl"
+
+# Check if file exists and has content
+NEED_SEED="no"
+if [ "$FORCE" = "yes" ]; then
+  NEED_SEED="yes"
+elif [ ! -f "$LEARNINGS_FILE" ]; then
+  NEED_SEED="yes"
+elif [ ! -s "$LEARNINGS_FILE" ]; then
+  NEED_SEED="yes"
+fi
+
+if [ "$NEED_SEED" = "no" ]; then
+  EXISTING=$(wc -l < "$LEARNINGS_FILE" | tr -d ' ')
+  echo "[bootstrap] learnings.jsonl already has $EXISTING entries. Use --force to append."
+  exit 0
+fi
+
+mkdir -p "$HOME/.android-skills/projects/$SLUG"
+
+# Counters
+TOTAL=0
+OK=0
+SKIP=0
+
+seed() {
+  local json="$1"
+  local key
+  key=$(echo "$json" | sed 's/.*"key":"\([^"]*\)".*/\1/')
+  TOTAL=$((TOTAL + 1))
+
+  # Check for duplicate (by key) -- handle both spaced and unspaced JSON formats
+  if [ -f "$LEARNINGS_FILE" ] && [ -s "$LEARNINGS_FILE" ]; then
+    if grep -qF "\"key\": \"$key\"" "$LEARNINGS_FILE" 2>/dev/null || \
+       grep -qF "\"key\":\"$key\"" "$LEARNINGS_FILE" 2>/dev/null; then
+      SKIP=$((SKIP + 1))
+      return
+    fi
+  fi
+
+  # Use android-learnings-log for writing (reuses validation + timestamp injection)
+  if bash "$LOG_SCRIPT" "$json" > /dev/null 2>&1; then
+    OK=$((OK + 1))
+    echo "  + $key"
+  else
+    echo "  ! FAILED: $key" >&2
+  fi
+}
+
+echo "[bootstrap] Seeding preloaded Android pitfalls..."
+
+# === Lifecycle & Memory ===
+
+seed '{"skill":"android-learn","type":"pitfall","key":"viewmodel-context-leak","insight":"ViewModel 中持有 Activity/Fragment Context 引用会导致内存泄漏，应使用 AndroidViewModel 或 Application context","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pattern","key":"lifecycle-aware-coroutine","insight":"ViewModel 中的 coroutine 应使用 viewModelScope 而非 GlobalScope，确保生命周期感知","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"compose-collectas-state-lifecycle","insight":"collectAsState 在 Composable 中需要正确的 Lifecycle owner，否则可能在后台收集导致 crash","confidence":8,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"fragment-view-binding-leak","insight":"Fragment 中使用 ViewBinding 时必须在 onDestroyView 中置 null，否则跨生命周期泄漏","confidence":9,"source":"user-stated"}'
+
+# === Concurrency & Threading ===
+
+seed '{"skill":"android-learn","type":"pitfall","key":"globalscope-anti-pattern","insight":"GlobalScope 创建的协程不受生命周期管理，应使用 viewModelScope/lifecycleScope","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"main-thread-io","insight":"Room 数据库查询默认在主线程执行，必须显式指定 IO dispatcher","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"compose-recomposition-key","insight":"LazyColumn item 缺少 key 参数会导致不必要的重组和状态丢失","confidence":8,"source":"user-stated"}'
+
+# === Resource Management ===
+
+seed '{"skill":"android-learn","type":"pitfall","key":"bitmap-recycle","insight":"大 Bitmap 加载后不 recycle 会导致 OOM，应使用 Glide/Coil 等图片加载库","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"resource-leak-closeable","insight":"Cursor、InputStream 等实现了 Closeable 的资源必须在 finally 块或 use{} 中关闭","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"string-resource-format","insight":"动态构建字符串时应使用 string resource 的 format 参数而非字符串拼接","confidence":8,"source":"user-stated"}'
+
+# === Testing ===
+
+seed '{"skill":"android-learn","type":"pitfall","key":"mockk-inline-mock","insight":"MockK 的 inline mock 需要添加 @Config(instrumentedPackages) 或使用 mockkStatic 注解","confidence":7,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pattern","key":"coroutine-test-dispatcher","insight":"测试 coroutine 代码时应使用 StandardTestDispatcher 和 runTest，而非 Dispatchers.Main","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pattern","key":"compose-ui-test-semantics","insight":"Compose UI 测试优先使用 semantics matchers 而非 findText，更接近用户视角","confidence":8,"source":"user-stated"}'
+
+# === Architecture ===
+
+seed '{"skill":"android-learn","type":"pattern","key":"repository-pattern","insight":"数据层应通过 Repository 抽象，ViewModel 不应直接访问 Room DAO 或网络 API","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pattern","key":"sealed-class-result","insight":"网络请求结果使用 sealed class (Success/Error/Loading) 而非 nullable 返回值","confidence":8,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"convention","key":"domain-layer-separation","insight":"Use Case 应保持纯 Kotlin，不依赖 Android framework 类","confidence":8,"source":"user-stated"}'
+
+# === Build & Config ===
+
+seed '{"skill":"android-learn","type":"operational","key":"proguard-rules-upkeep","insight":"启用 R8 混淆时必须为反射使用的类添加 @Keep 或 ProGuard keep 规则","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"preference","key":"gradle-version-catalog","insight":"推荐使用 Gradle Version Catalog (libs.versions.toml) 管理依赖版本","confidence":7,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"build-config-deprecation","insight":"AGP 8.0+ 中 buildConfigField 默认不生成，需显式设置 buildFeatures.buildConfig = true","confidence":9,"source":"user-stated"}'
+
+# === Compose Specific ===
+
+seed '{"skill":"android-learn","type":"pitfall","key":"remember-for-state","insight":"Compose 中可变状态必须用 remember + mutableStateOf 包装，否则每次重组都会重置","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pitfall","key":"sideeffect-lifecycle","insight":"LaunchedEffect 的 key 参数必须包含所有影响重启的条件，遗漏会导致 effect 不重启","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"pattern","key":"stable-annotation","insight":"对不可变数据类添加 @Stable 注解可显著减少 Compose 重组次数","confidence":7,"source":"user-stated"}'
+
+# === Navigation ===
+
+seed '{"skill":"android-learn","type":"pattern","key":"savedstatehandle-viewmodel","insight":"Navigation 参数应通过 SavedStateHandle 传递给 ViewModel，而非直接构造函数注入","confidence":9,"source":"user-stated"}'
+
+seed '{"skill":"android-learn","type":"operational","key":"deep-link-verification","insight":"添加 deep link 后必须在 AndroidManifest 中配置 intent-filter 并验证 nav_graph 中的 deeplink 节点","confidence":7,"source":"user-stated"}'
+
+# Summary
+echo ""
+echo "[bootstrap] Seeding complete."
+echo "  Total entries: $TOTAL"
+echo "  Added:         $OK"
+echo "  Skipped (dup): $SKIP"
+if [ "$OK" -gt 0 ]; then
+  FINAL_COUNT=$(wc -l < "$LEARNINGS_FILE" | tr -d ' ')
+  echo "  File:          $LEARNINGS_FILE ($FINAL_COUNT entries)"
+fi

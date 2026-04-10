@@ -6,6 +6,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 
 | User Intent | Skill | Trigger |
 |------------|-------|---------|
+| 全局状态、仪表盘、查看进展 | `android-status` | "状态"、"全局状态"、"仪表盘"、"dashboard"、"当前状态" |
 | 需求分析、头脑风暴、方案探索 | `android-brainstorm` | "头脑风暴"、"分析需求"、"探索方案" |
 | 计划拆分、任务规划、review plan | `android-autoplan` | "拆分任务"、"做计划"、"autoplan"、"review plan" |
 | 测试先行、TDD、写测试 | `android-tdd` | "TDD"、"测试先行"、"写测试" |

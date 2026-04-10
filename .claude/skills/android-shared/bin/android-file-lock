@@ -1,0 +1,51 @@
+#!/bin/bash
+# android-file-lock: Execute a command while holding a file lock
+# Usage: android-file-lock <lockfile> <command> [args...]
+# Exit code: 98 if lock cannot be acquired (caller should retry)
+#           1 on other errors
+#           passes through command exit code on success
+set -euo pipefail
+
+LOCKFILE="${1:?Usage: android-file-lock <lockfile> <command> [args...]}"
+shift
+CMD=("$@")
+
+if [ ${#CMD[@]} -eq 0 ]; then
+  echo "ERROR: no command specified" >&2
+  exit 1
+fi
+
+# mkdir-based lock (works on Linux, macOS, and Windows git bash)
+LOCKDIR="${LOCKFILE}.lock.d"
+RETRIES=30
+INTERVAL=0.1
+
+cleanup() {
+  if [ -n "${LOCKDIR:-}" ] && [ -d "$LOCKDIR" ]; then
+    rmdir "$LOCKDIR" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+for ((i = 1; i <= RETRIES; i++)); do
+  if mkdir "$LOCKDIR" 2>/dev/null; then
+    # Acquired lock — write PID for debugging
+    echo $$ > "$LOCKDIR/pid"
+    "${CMD[@]}"
+    exit $?
+  fi
+  # Check if the lock holder is still alive
+  HOLDER_PID=""
+  if [ -f "$LOCKDIR/pid" ]; then
+    HOLDER_PID=$(cat "$LOCKDIR/pid" 2>/dev/null || true)
+  fi
+  if [ -n "$HOLDER_PID" ] && ! kill -0 "$HOLDER_PID" 2>/dev/null; then
+    # Holder is dead — remove stale lock
+    rm -rf "$LOCKDIR"
+    continue
+  fi
+  sleep "$INTERVAL"
+done
+
+echo "ERROR: could not acquire lock on $LOCKFILE (timeout 3s)" >&2
+exit 98

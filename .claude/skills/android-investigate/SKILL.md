@@ -61,6 +61,11 @@ voice-triggers:
 
 ### 前置: 加载历史学习记录
 
+**前置引导:** 若学习记录为空，先运行预加载:
+```bash
+bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+```
+
 ```bash
 # 加载与问题领域相关的历史学习记录
 LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --query "<bug领域关键词>" --limit 5 2>/dev/null || true)
@@ -114,6 +119,13 @@ grep -rn "error\|Error\|fail\|Fail\|exception\|Exception" <相关文件> --inclu
 ### 步骤 3: 收集变更上下文
 
 > 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
+
+**环境检测优化:** 优先调用共享脚本获取技术栈信息:
+```bash
+ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+echo "$ENV_JSON"
+```
+脚本不可用时回退到以下内联检测命令。
 
 ```bash
 # 项目根目录

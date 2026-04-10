@@ -55,6 +55,13 @@ voice-triggers:
 
 > 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
 
+**环境检测优化:** 优先调用共享脚本获取技术栈信息:
+```bash
+ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+echo "$ENV_JSON"
+```
+脚本不可用时回退到以下内联检测命令。
+
 ```bash
 # 从当前目录向上查找项目根 (含 build.gradle 或 settings.gradle)
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)

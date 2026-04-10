@@ -147,6 +147,13 @@ voice-triggers:
    fi
    ```
 
+   若 FILE_MISSING:
+   1. 运行预加载脚本:
+      ```bash
+      bash .claude/skills/android-shared/bin/android-learnings-bootstrap
+      ```
+   2. 重新检查条目数
+
 4. 输出环境摘要:
    ```
    [android-learn] 环境检测完成

@@ -1,0 +1,338 @@
+#!/usr/bin/env bash
+# android-detect-env — Shared Android project environment detection script
+# Outputs structured JSON (default) or human-readable text format.
+# Works on Windows git bash AND Linux. No external dependencies beyond python for JSON.
+set -euo pipefail
+
+case "${1:-}" in
+  --format) FORMAT="${2:-json}"; shift 2 ;;
+  json)     FORMAT="json"; shift ;;
+  text)     FORMAT="text"; shift ;;
+  *)        FORMAT="json" ;;
+esac
+
+# ── Helper: find project root ──────────────────────────────────────────
+find_project_root() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$root" ]; then
+    # Fallback: walk up from cwd looking for build.gradle / settings.gradle
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+      if [ -f "$dir/build.gradle" ] || [ -f "$dir/build.gradle.kts" ] || \
+         [ -f "$dir/settings.gradle" ] || [ -f "$dir/settings.gradle.kts" ]; then
+        root="$dir"
+        break
+      fi
+      dir=$(dirname "$dir")
+    done
+  fi
+  echo "$root"
+}
+
+PROJECT_ROOT=$(find_project_root)
+if [ -z "$PROJECT_ROOT" ]; then
+  echo "ERROR: Not a git repository and no Android project root found" >&2
+  exit 1
+fi
+
+# ── Helper: find build files (root + app module) ───────────────────────
+BUILD_FILES=""
+for f in \
+  "$PROJECT_ROOT/app/build.gradle.kts" \
+  "$PROJECT_ROOT/app/build.gradle" \
+  "$PROJECT_ROOT/build.gradle.kts" \
+  "$PROJECT_ROOT/build.gradle"; do
+  [ -f "$f" ] && BUILD_FILES="$BUILD_FILES $f"
+done
+BUILD_FILES=$(echo "$BUILD_FILES" | xargs 2>/dev/null || true)
+
+SETTINGS_FILE=""
+for f in "$PROJECT_ROOT/settings.gradle.kts" "$PROJECT_ROOT/settings.gradle"; do
+  [ -f "$f" ] && SETTINGS_FILE="$f" && break
+done
+
+# ── Helper: grep-or-empty ──────────────────────────────────────────────
+safe_grep() {
+  local pattern="$1"; shift
+  local result=""
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    result=$(grep -E "$pattern" "$f" 2>/dev/null || true)
+    [ -n "$result" ] && echo "$result" && return
+  done
+}
+
+safe_grep_rl() {
+  local pattern="$1"; shift
+  local dir="$1"; shift
+  find "$dir" "$@" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | \
+    xargs grep -rl "$pattern" 2>/dev/null | head -1 || true
+}
+
+# ── Detection: project_type ────────────────────────────────────────────
+if [ -f "$PROJECT_ROOT/build.gradle" ] || [ -f "$PROJECT_ROOT/build.gradle.kts" ] || \
+   [ -f "$PROJECT_ROOT/settings.gradle" ] || [ -f "$PROJECT_ROOT/settings.gradle.kts" ]; then
+  PROJECT_TYPE="android"
+else
+  PROJECT_TYPE="unknown"
+fi
+
+# ── Detection: build_system ────────────────────────────────────────────
+BUILD_SYSTEM=""
+if [ -f "$PROJECT_ROOT/build.gradle.kts" ] || [ -f "$PROJECT_ROOT/app/build.gradle.kts" ]; then
+  BUILD_SYSTEM="gradle-kts"
+elif [ -f "$PROJECT_ROOT/build.gradle" ] || [ -f "$PROJECT_ROOT/app/build.gradle" ]; then
+  BUILD_SYSTEM="gradle-groovy"
+else
+  BUILD_SYSTEM="unknown"
+fi
+
+# ── Detection: language ────────────────────────────────────────────────
+KOTLIN_COUNT=0
+JAVA_COUNT=0
+if [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  KOTLIN_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.kt" -type f 2>/dev/null | wc -l)
+  JAVA_COUNT=$(find "$PROJECT_ROOT/app/src/main" -name "*.java" -type f 2>/dev/null | wc -l)
+fi
+if [ "$KOTLIN_COUNT" -gt 0 ] && [ "$JAVA_COUNT" -gt 0 ]; then
+  LANGUAGE="kotlin-java"
+elif [ "$KOTLIN_COUNT" -gt 0 ]; then
+  LANGUAGE="kotlin"
+elif [ "$JAVA_COUNT" -gt 0 ]; then
+  LANGUAGE="java"
+else
+  LANGUAGE=""
+fi
+
+# ── Detection: kotlin_version ──────────────────────────────────────────
+KOTLIN_VERSION=""
+if [ -n "$BUILD_FILES" ]; then
+  # Try kotlin("android") or kotlin-android plugin
+  KV=$(safe_grep 'kotlin\("android"\)' $BUILD_FILES 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
+  if [ -z "$KV" ]; then
+    KV=$(safe_grep 'kotlinAndroid' $BUILD_FILES 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || true)
+  fi
+  # Try version catalog
+  if [ -z "$KV" ] && [ -f "$PROJECT_ROOT/gradle/libs.versions.toml" ]; then
+    KV=$(grep -E '^\s*kotlin\s*=' "$PROJECT_ROOT/gradle/libs.versions.toml" 2>/dev/null | grep -oP '"\d+\.\d+\.\d+"' | tr -d '"' | head -1 || true)
+  fi
+  KOTLIN_VERSION="$KV"
+fi
+
+# ── Detection: compose_enabled ─────────────────────────────────────────
+COMPOSE_ENABLED="false"
+if [ -n "$BUILD_FILES" ]; then
+  if echo "$BUILD_FILES" | xargs grep -q "androidx.compose" 2>/dev/null; then
+    COMPOSE_ENABLED="true"
+  fi
+fi
+if [ "$COMPOSE_ENABLED" = "false" ] && [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  if safe_grep_rl "@Composable" "$PROJECT_ROOT/app/src/main" >/dev/null 2>&1; then
+    COMPOSE_ENABLED="true"
+  fi
+fi
+
+# ── Detection: di_framework ─────────────────────────────────────────────
+DI_FRAMEWORK=""
+if [ -n "$BUILD_FILES" ]; then
+  if echo "$BUILD_FILES" | xargs grep -q "hilt" 2>/dev/null; then
+    DI_FRAMEWORK="hilt"
+  elif echo "$BUILD_FILES" | xargs grep -q "koin" 2>/dev/null; then
+    DI_FRAMEWORK="koin"
+  elif echo "$BUILD_FILES" | xargs grep -q "dagger" 2>/dev/null; then
+    DI_FRAMEWORK="dagger"
+  fi
+fi
+
+# ── Detection: async_framework ─────────────────────────────────────────
+ASYNC_FRAMEWORK=""
+if [ -n "$BUILD_FILES" ]; then
+  if echo "$BUILD_FILES" | xargs grep -q "coroutines" 2>/dev/null; then
+    ASYNC_FRAMEWORK="coroutines"
+  elif echo "$BUILD_FILES" | xargs grep -q "rxjava\|rxkotlin\|rxandroid" 2>/dev/null; then
+    ASYNC_FRAMEWORK="rxjava"
+  fi
+fi
+
+# ── Detection: modules ─────────────────────────────────────────────────
+MODULES=""
+if [ -n "$SETTINGS_FILE" ]; then
+  MODULES=$(grep -oP 'include\s*\(?["\x27:]?\K[\w:-]+' "$SETTINGS_FILE" 2>/dev/null | \
+    sed 's/^://g' | tr '\n' ',' | sed 's/,$//' || true)
+fi
+
+# ── Detection: SDK versions ────────────────────────────────────────────
+MIN_SDK=""
+TARGET_SDK=""
+COMPILE_SDK=""
+if [ -n "$BUILD_FILES" ]; then
+  MIN_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'minSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+  TARGET_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'targetSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+  COMPILE_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'compileSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+fi
+
+# ── Detection: test_frameworks ─────────────────────────────────────────
+TEST_FRAMEWORKS=""
+if [ -n "$BUILD_FILES" ]; then
+  TF=""
+  echo "$BUILD_FILES" | xargs grep -q "junit" 2>/dev/null && TF="$TF,junit"
+  echo "$BUILD_FILES" | xargs grep -q "mockk" 2>/dev/null && TF="$TF,mockk"
+  echo "$BUILD_FILES" | xargs grep -q "mockito" 2>/dev/null && TF="$TF,mockito"
+  echo "$BUILD_FILES" | xargs grep -q "truth" 2>/dev/null && TF="$TF,truth"
+  echo "$BUILD_FILES" | xargs grep -q "assertj" 2>/dev/null && TF="$TF,assertj"
+  echo "$BUILD_FILES" | xargs grep -q "robolectric" 2>/dev/null && TF="$TF,robolectric"
+  TEST_FRAMEWORKS=$(echo "$TF" | sed 's/^,//;s/,$//' | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+fi
+
+# ── Detection: has_jacoco ──────────────────────────────────────────────
+HAS_JACOCO="false"
+if [ -n "$BUILD_FILES" ]; then
+  if echo "$BUILD_FILES" | xargs grep -q "jacoco" 2>/dev/null; then
+    HAS_JACOCO="true"
+  fi
+fi
+
+# ── Detection: git info ────────────────────────────────────────────────
+GIT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+GIT_REMOTE=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)
+# Strip protocol for cleaner output
+GIT_REMOTE=$(echo "$GIT_REMOTE" | sed 's|^https://||;s|^git@||;s|\.git$||;s|^ssh://git@||' || true)
+
+# ── Detection: project_slug ────────────────────────────────────────────
+PROJECT_SLUG=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
+
+# ── Detection: root_package ────────────────────────────────────────────
+ROOT_PACKAGE=""
+# Try AndroidManifest.xml first
+MANIFEST="$PROJECT_ROOT/app/src/main/AndroidManifest.xml"
+if [ -f "$MANIFEST" ]; then
+  ROOT_PACKAGE=$(grep -oP 'package\s*=\s*"\K[^"]+' "$MANIFEST" 2>/dev/null | head -1 || true)
+fi
+# Fallback: namespace in build.gradle.kts
+if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'namespace\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+fi
+# Fallback: applicationId
+if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'applicationId\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+fi
+# Fallback: first package in kotlin source
+if [ -z "$ROOT_PACKAGE" ] && [ -d "$PROJECT_ROOT/app/src/main/kotlin" ]; then
+  PKG_DIR=$(find "$PROJECT_ROOT/app/src/main/kotlin" -type d -mindepth 1 -maxdepth 4 2>/dev/null | head -1 || true)
+  if [ -n "$PKG_DIR" ]; then
+    ROOT_PACKAGE=$(echo "$PKG_DIR" | sed "s|$PROJECT_ROOT/app/src/main/kotlin/||" | tr '/' '.')
+  fi
+fi
+
+# ── Output ─────────────────────────────────────────────────────────────
+if [ "$FORMAT" = "text" ]; then
+  echo "project_type=$PROJECT_TYPE"
+  echo "build_system=$BUILD_SYSTEM"
+  echo "language=$LANGUAGE"
+  echo "kotlin_version=$KOTLIN_VERSION"
+  echo "compose_enabled=$COMPOSE_ENABLED"
+  echo "di_framework=$DI_FRAMEWORK"
+  echo "async_framework=$ASYNC_FRAMEWORK"
+  echo "modules=$MODULES"
+  echo "min_sdk=$MIN_SDK"
+  echo "target_sdk=$TARGET_SDK"
+  echo "compile_sdk=$COMPILE_SDK"
+  echo "test_frameworks=$TEST_FRAMEWORKS"
+  echo "has_jacoco=$HAS_JACOCO"
+  echo "git_branch=$GIT_BRANCH"
+  echo "git_remote=$GIT_REMOTE"
+  echo "project_slug=$PROJECT_SLUG"
+  echo "root_package=$ROOT_PACKAGE"
+else
+  # JSON output — use python for formatting (python3/python compat)
+  PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+  if [ -n "$PY" ]; then
+    "$PY" -c "
+import json
+modules_raw = '${MODULES}'.strip()
+test_fw_raw = '${TEST_FRAMEWORKS}'.strip()
+di = '${DI_FRAMEWORK}'.strip() or None
+async_fw = '${ASYNC_FRAMEWORK}'.strip() or None
+kotlin_ver = '${KOTLIN_VERSION}'.strip() or None
+git_remote = '${GIT_REMOTE}'.strip() or None
+root_pkg = '${ROOT_PACKAGE}'.strip() or None
+min_sdk_s = '${MIN_SDK}'.strip()
+target_sdk_s = '${TARGET_SDK}'.strip()
+compile_sdk_s = '${COMPILE_SDK}'.strip()
+data = {
+    'project_type': '${PROJECT_TYPE}',
+    'build_system': '${BUILD_SYSTEM}',
+    'language': '${LANGUAGE}',
+    'kotlin_version': kotlin_ver,
+    'compose_enabled': True if '${COMPOSE_ENABLED}' == 'true' else False,
+    'di_framework': di,
+    'async_framework': async_fw,
+    'modules': [m.strip() for m in modules_raw.split(',') if m.strip()] if modules_raw else [],
+    'min_sdk': int(min_sdk_s) if min_sdk_s.isdigit() else None,
+    'target_sdk': int(target_sdk_s) if target_sdk_s.isdigit() else None,
+    'compile_sdk': int(compile_sdk_s) if compile_sdk_s.isdigit() else None,
+    'test_frameworks': [t.strip() for t in test_fw_raw.split(',') if t.strip()] if test_fw_raw else [],
+    'has_jacoco': True if '${HAS_JACOCO}' == 'true' else False,
+    'git_branch': '${GIT_BRANCH}',
+    'git_remote': git_remote,
+    'project_slug': '${PROJECT_SLUG}',
+    'root_package': root_pkg,
+}
+print(json.dumps(data, indent=2, ensure_ascii=False))
+"
+  else
+    # Fallback: manual JSON construction (no python)
+    # Convert booleans to lowercase, handle nulls
+    local_di="$DI_FRAMEWORK"
+    local_async="$ASYNC_FRAMEWORK"
+    local_kotlin="$KOTLIN_VERSION"
+    local_git_remote="$GIT_REMOTE"
+    local_root_pkg="$ROOT_PACKAGE"
+    [ -z "$local_di" ] && local_di="null"
+    [ -z "$local_async" ] && local_async="null"
+    [ -z "$local_kotlin" ] && local_kotlin="null"
+    [ -z "$local_git_remote" ] && local_git_remote="null"
+    [ -z "$local_root_pkg" ] && local_root_pkg="null"
+
+    # Build modules JSON array
+    MODS_JSON="[]"
+    if [ -n "$MODULES" ]; then
+      MODS_JSON=$(echo "$MODULES" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' | \
+        sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/' || echo "[]")
+    fi
+
+    # Build test_frameworks JSON array
+    TF_JSON="[]"
+    if [ -n "$TEST_FRAMEWORKS" ]; then
+      TF_JSON=$(echo "$TEST_FRAMEWORKS" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' | \
+        sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/' || echo "[]")
+    fi
+
+    local_min_sdk="$MIN_SDK"; [ -z "$local_min_sdk" ] && local_min_sdk="null"
+    local_target_sdk="$TARGET_SDK"; [ -z "$local_target_sdk" ] && local_target_sdk="null"
+    local_compile_sdk="$COMPILE_SDK"; [ -z "$local_compile_sdk" ] && local_compile_sdk="null"
+
+    cat <<ENDJSON
+{
+  "project_type": "$PROJECT_TYPE",
+  "build_system": "$BUILD_SYSTEM",
+  "language": "$LANGUAGE",
+  "kotlin_version": $local_kotlin,
+  "compose_enabled": $COMPOSE_ENABLED,
+  "di_framework": $local_di,
+  "async_framework": $local_async,
+  "modules": $MODS_JSON,
+  "min_sdk": $local_min_sdk,
+  "target_sdk": $local_target_sdk,
+  "compile_sdk": $local_compile_sdk,
+  "test_frameworks": $TF_JSON,
+  "has_jacoco": $HAS_JACOCO,
+  "git_branch": "$GIT_BRANCH",
+  "git_remote": $local_git_remote,
+  "project_slug": "$PROJECT_SLUG",
+  "root_package": $local_root_pkg
+}
+ENDJSON
+  fi
+fi

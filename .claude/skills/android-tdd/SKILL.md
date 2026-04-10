@@ -56,6 +56,11 @@ voice-triggers:
 
 ### 前置: 加载历史学习记录
 
+**前置引导:** 若学习记录为空，先运行预加载:
+```bash
+bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+```
+
 ```bash
 # 加载与测试相关的历史学习记录
 LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
@@ -68,6 +73,13 @@ fi
 如果找到相关学习记录，在编写测试时注意这些已知的测试框架坑点（如 MockK inline mock 限制、协程测试调度器配置等）。
 
 ### 步骤 1: 确定项目根目录和基本信息
+
+**环境检测优化:** 优先调用共享脚本获取技术栈信息:
+```bash
+ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+echo "$ENV_JSON"
+```
+脚本不可用时回退到以下内联检测命令。
 
 ```bash
 # Project root

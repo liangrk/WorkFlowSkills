@@ -1,0 +1,114 @@
+#!/bin/bash
+# android-worktree-health: Check worktree health and optionally clean up
+# Usage: android-worktree-health [--cleanup]
+set -euo pipefail
+
+CLEANUP=false
+[ "${1:-}" = "--cleanup" ] && CLEANUP=true
+
+# Locate main worktree
+MAIN_WT=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+if [ -z "$MAIN_WT" ]; then echo "ERROR: not in a git repo" >&2; exit 1; fi
+cd "$MAIN_WT"
+
+WT_DIR=".claude/worktrees"
+INFO_FILE="worktree-info.md"
+PLANS_DIR="docs/plans"
+
+# Collect all merged branches
+MERGED=$(git branch --merged HEAD 2>/dev/null | sed 's/\*//g' | sed 's/^  *//')
+STALE_COUNT=0; ORPHAN_COUNT=0; LEAK_COUNT=0; ACTIVE_COUNT=0
+STALE_DETAILS=""; ORPHAN_DETAILS=""; LEAK_DETAILS=""
+
+# --- Check 1: Stale worktrees (merged/deleted branches) ---
+if [ -d "$WT_DIR" ]; then
+  for wt_entry in $(git worktree list 2>/dev/null | grep "$WT_DIR" | awk '{print $1}'); do
+    wt_branch=$(git worktree list 2>/dev/null | grep "$wt_entry" | awk '{print $3}' | sed 's|refs/heads/||')
+    is_stale=false
+    reason=""
+    if echo "$MERGED" | grep -qFx "$wt_branch"; then
+      merged_date=$(git log -1 --format="%cs" "$wt_branch" 2>/dev/null || echo "unknown")
+      is_stale=true; reason="branch already merged ($merged_date)"
+    elif ! git show-ref --verify --quiet "refs/heads/$wt_branch" 2>/dev/null; then
+      is_stale=true; reason="branch deleted"
+    fi
+    if $is_stale; then
+      STALE_COUNT=$((STALE_COUNT + 1))
+      STALE_DETAILS="${STALE_DETAILS}#  [stale] $wt_branch -> $reason\n"
+      if $CLEANUP; then
+        git worktree remove "$wt_entry" --force 2>/dev/null && echo "  removed: $wt_entry" || echo "  failed: $wt_entry"
+      fi
+    else
+      ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
+    fi
+  done
+fi
+
+# --- Check 2: Orphan branches (wr/ or plan/ with no worktree dir) ---
+for branch in $(git branch --format='%(refname:short)' | grep -E '^(wr/|plan/)'); do
+  has_wt=false
+  while IFS= read -r wt_line; do
+    wt_path=$(echo "$wt_line" | awk '{print $1}')
+    wt_br=$(echo "$wt_line" | awk '{print $3}' | sed 's|refs/heads/||')
+    if [ "$wt_br" = "$branch" ] && [ -d "$wt_path" ]; then has_wt=true; break; fi
+  done < <(git worktree list 2>/dev/null)
+  if ! $has_wt; then
+    ORPHAN_COUNT=$((ORPHAN_COUNT + 1))
+    ORPHAN_DETAILS="${ORPHAN_DETAILS}#  [orphan] $branch -> no corresponding worktree directory\n"
+    if $CLEANUP; then
+      git branch -d "$branch" 2>/dev/null && echo "  deleted: $branch" || echo "  failed: $branch"
+    fi
+  fi
+done
+
+# --- Check 3: worktree-info sync ---
+SYNC_ISSUES=""
+if [ -f "$INFO_FILE" ]; then
+  while IFS= read -r plan_ref; do
+    plan_ref=$(echo "$plan_ref" | sed 's/[[:space:]]*$//')
+    [ -z "$plan_ref" ] && continue
+    bn=$(basename "$plan_ref" .md)
+    found=false
+    for p in "$PLANS_DIR/$bn.md" "$PLANS_DIR/${bn}-execution-issues.md"; do
+      [ -f "$p" ] && found=true && break
+    done
+    if ! $found; then SYNC_ISSUES="${SYNC_ISSUES}#  [sync] $plan_ref -> referenced plan file not found\n"; fi
+  done < <(grep -oP 'docs/plans/[^ )\]]+' "$INFO_FILE" 2>/dev/null || true)
+fi
+
+# --- Check 4: Gradle daemon leak ---
+if [ -f "gradlew" ]; then
+  while IFS= read -r wt_path; do
+    [ ! -d "$wt_path" ] || continue
+    for daemon_info in $(./gradlew --status 2>/dev/null | grep -i "daemon" || true); do
+      if echo "$daemon_info" | grep -q "$wt_path" 2>/dev/null; then
+        pid=$(echo "$daemon_info" | awk '{print $1}' | tr -d '|')
+        LEAK_COUNT=$((LEAK_COUNT + 1))
+        LEAK_DETAILS="${LEAK_DETAILS}#  [gradle-leak] daemon PID $pid -> path does not exist\n"
+        if $CLEANUP && [ -n "$pid" ]; then
+          ./gradlew --stop 2>/dev/null && echo "  stopped gradle daemons" || true
+        fi
+        break
+      fi
+    done
+  done < <(git worktree list 2>/dev/null | awk '{print $1}')
+fi
+
+# --- Report ---
+ISSUE_COUNT=$((STALE_COUNT + ORPHAN_COUNT + LEAK_COUNT))
+echo "[worktree-health] check complete"
+echo "- Active worktrees: $ACTIVE_COUNT"
+echo "- Stale worktrees: $STALE_COUNT (merged/deleted branches)"
+echo "- Orphan branches: $ORPHAN_COUNT"
+echo "- Gradle daemon leaks: $LEAK_COUNT"
+if [ $ISSUE_COUNT -gt 0 ] || [ -n "$SYNC_ISSUES" ]; then
+  echo ""; echo "Details:"
+  [ -n "$STALE_DETAILS" ] && echo -e "$STALE_DETAILS"
+  [ -n "$ORPHAN_DETAILS" ] && echo -e "$ORPHAN_DETAILS"
+  [ -n "$LEAK_DETAILS" ] && echo -e "$LEAK_DETAILS"
+  [ -n "$SYNC_ISSUES" ] && echo -e "$SYNC_ISSUES"
+  $CLEANUP && echo "" && echo "Cleanup completed."
+else
+  echo ""; echo "All worktrees healthy. No issues found."
+fi
+exit $ISSUE_COUNT
