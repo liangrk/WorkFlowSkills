@@ -42,6 +42,19 @@ voice-triggers:
 
 在所有流程开始前，自动检测项目环境。检测结果贯穿后续所有审查阶段。
 
+### 前置: 加载历史学习记录
+
+```bash
+# 加载与审查相关的历史学习记录
+LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+if [ -n "$LEARNINGS" ]; then
+  echo "=== 相关学习记录 ==="
+  echo "$LEARNINGS"
+fi
+```
+
+如果找到相关学习记录，在审查过程中重点关注这些已知的坑点。
+
 ### 步骤 1: 确认项目根目录和 git 状态
 
 > 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
@@ -254,6 +267,32 @@ git diff main...HEAD --shortstat
 > - A) 继续审查全部变更
 > - B) 仅审查指定模块/文件
 > - C) 取消
+
+---
+
+### Phase 1.5: 范围漂移检测
+
+在正式审查前，检查实际变更是否与 plan 一致:
+
+1. 从 `docs/plans/` 查找最近的 plan 文件 (glob `docs/plans/*.md`)
+2. 解析 plan 中声明的任务列表 (`### Task N:` 和 `- [ ]` 步骤)
+3. 获取实际变更文件列表:
+   ```bash
+   CHANGED_FILES=$(git diff origin/<BASE_BRANCH>...HEAD --name-only 2>/dev/null)
+   ```
+4. 对比分析:
+   - **SCOPE CREEP**: 变更文件不在 plan 任何任务步骤中
+   - **MISSING REQUIREMENTS**: plan 中声明但 diff 中未涉及的文件
+5. 输出:
+   ```
+   Scope Check: [CLEAN / DRIFT DETECTED / REQUIREMENTS MISSING]
+   
+   额外文件 (scope creep): <列表，如无则显示"无">
+   遗漏文件 (missing): <列表，如无则显示"无">
+   ```
+6. **不阻塞审查。** 仅作为信息提示注入审查报告。
+
+> 如果找不到 plan 文件，输出 "Scope Check: NO PLAN FOUND (无法对比)"，跳过此阶段。
 
 ---
 
@@ -538,6 +577,21 @@ Diff:
 (线程、Android 特有、可测试性)。这样可以根据前三个维度的结果判断是否需要调整
 后续审查的重点。
 
+**置信度评分 (对标 gstack review):**
+
+每个发现必须附带置信度:
+```
+[SEVERITY] (confidence: N/10) file:line — description
+```
+
+| 置信度 | 显示行为 |
+|--------|---------|
+| 9-10 | 正常显示（已验证的具体问题） |
+| 5-8 | 正常显示，标注"需验证" |
+| 1-4 | 仅收入附录，不干扰主要结论 |
+
+多方确认的发现（多个 dimension 同时发现同一问题）置信度 +1（上限 10）。
+
 ---
 
 ## Phase 3: 汇总审查结论
@@ -558,6 +612,36 @@ Diff:
 | 建议 | WARNING | 应该修复。影响代码质量、可维护性或性能 | 建议修复 |
 | 信息 | INFO | 供参考。风格偏好、优化建议 | 可选改进 |
 
+### Phase 3.5: 独立对抗审查
+
+**触发条件:** 满足以下任一条件:
+- 变更行数 > 50 行
+- 任意 dimension 发现 BLOCKER
+
+**不触发条件:** 变更 < 50 行且无 BLOCKER → 跳过此阶段。**
+
+**流程:**
+
+1. 使用 Agent tool 派发独立 subagent（fresh context，看不到 Phase 2-3 的审查过程）:
+   - 输入: git diff + 技术栈信息 + 6 个 dimension 的审查结论摘要
+   - Prompt: "你是代码审查的对手。6 个审查维度已经完成了审查，你的任务是找出他们遗漏的问题。重点关注: 安全漏洞、边界条件、并发问题、资源泄漏、平台兼容性。"
+   - 不传入主审查的具体结论，只传入变更内容，避免确认偏差
+
+2. 对抗审查产出补充发现列表:
+   ```
+   ## 对抗审查补充发现
+   - [SEVERITY] (confidence: N/10) file:line — description
+   ```
+
+3. **合并:** 将对抗发现与 Phase 3 主报告合并:
+   - 如果对抗发现与已有发现重复 → 置信度 +1
+   - 如果对抗发现是新的 → 追加到报告
+
+4. **对抗审查跳过时** (变更小且无 BLOCKER):
+   输出: "对抗审查: 跳过 (变更行数 < 50 且无 BLOCKER)"
+
+---
+
 ### 步骤 3: 生成审查报告
 
 ```
@@ -575,6 +659,17 @@ Diff:
 ║  总评: PASS / CONDITIONAL PASS / FAIL                ║
 ╚══════════════════════════════════════════════════════╝
 ```
+
+**PR 质量评分:**
+```bash
+QUALITY_SCORE=$(python3 -c "print(max(0, 10 - (BLOCKER * 2 + WARNING * 0.5)))")
+```
+- 10: 无问题
+- 8-9: 少量 WARNING
+- 6-7: 多个 WARNING 或 1 个 BLOCKER
+- 0-5: 多个 BLOCKER
+
+将评分包含在报告头部。
 
 **总评规则:**
 - **PASS** — 无阻塞问题
@@ -675,6 +770,31 @@ mkdir -p docs/reviews
 > - A) 查看完整报告
 > - B) 自动修复阻塞问题
 > - C) 忽略并标记为 CONDITIONAL PASS
+
+---
+
+## Capture Learnings
+
+审查完成后，将新发现记录到学习系统以供未来 session 参考。
+
+**记录时机:**
+
+1. **发现新的 BLOCKER/WARNING 模式** — 如果该问题是项目中首次发现（非已有学习记录中的重复模式），使用 android-learnings-log 记录:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"code-review","type":"pitfall","key":"<简短标识>","insight":"<问题描述>","confidence":8,"source":"observed","files":["<相关文件>"]}'
+   ```
+
+2. **发现项目特有的架构约定** — 如果推断的架构模式与实际不一致，记录为 convention:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"code-review","type":"convention","key":"<约定名>","insight":"<约定描述>","confidence":9,"source":"observed","files":[]}'
+   ```
+
+3. **置信度调整** — 如果历史学习记录中的某条在本轮审查中被验证或推翻，更新置信度。
+
+**不记录:**
+- INFO 级别的风格建议（噪音过多）
+- 与历史记录完全重复的发现
+- 第三方库的已知问题（除非有项目特有 workaround）
 
 ---
 

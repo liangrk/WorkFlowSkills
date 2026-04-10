@@ -1,0 +1,27 @@
+#!/bin/bash
+# android-learnings-log: Append a learning entry
+# Usage: android-learnings-log '<json>'
+set -euo pipefail
+
+INPUT="$1"
+if [ -z "$INPUT" ]; then echo "Usage: android-learnings-log '<json>'" >&2; exit 1; fi
+
+# Validate JSON
+echo "$INPUT" | python3 -c "import sys,json; json.loads(sys.stdin.read())" 2>/dev/null || { echo "ERROR: Invalid JSON" >&2; exit 1; }
+
+# Compute slug
+SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*/||;s|\.git$||;s|/$||' | tail -1)
+[ -z "$SLUG" ] && SLUG=$(basename "$(pwd)")
+[ -z "$SLUG" ] && { echo "ERROR: Cannot determine project slug" >&2; exit 1; }
+
+DIR="$HOME/.android-skills/projects/$SLUG"
+mkdir -p "$DIR"
+
+# Auto-inject timestamp if missing
+if ! echo "$INPUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print('ts' in d)" 2>/dev/null | grep -q True; then
+  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  INPUT=$(echo "$INPUT" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); d['ts']='$TS'; print(json.dumps(d))")
+fi
+
+echo "$INPUT" >> "$DIR/learnings.jsonl"
+echo "OK: learning logged to $DIR/learnings.jsonl"

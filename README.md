@@ -19,7 +19,18 @@
 ┌─────────────┐    ┌──────────────┐                    ┌──────────────┐
 │    qa      │    │  反馈回路   │                    │  doc-release │
 │  功能测试   │◀───▶│  runner→plan │                    │  文档更新     │
-└─────────────┘    └──────────────┘                    └──────────────┘
+└─────────────┘    └──────────────┘                    └──────┬───────┘
+                                                           │
+                                                           ▼
+                                                  ┌──────────────────┐
+                                                  │  android-ship    │
+                                                  │  范围检测+交付    │
+                                                  └──────────────────┘
+
+┌─────────────┐
+│android-learn│  (独立工具 — 跨 session 知识积累)
+│  学习记录   │
+└─────────────┘
 ```
 
 ## Skill 列表
@@ -35,6 +46,8 @@
 | `android-code-review` | 审查 | 代码质量审查 (架构、命名、生命周期、线程安全等) | `/android-code-review` |
 | `android-qa` | 验证 | 功能级 QA (静态分析、构建测试、设备测试) | `/android-qa` |
 | `android-investigate` | 调试 | 系统化 bug 排查 (四层分析: 表现→数据→逻辑→平台) | `/android-investigate <问题描述>` |
+| `android-ship` | 交付 | 范围漂移检测、验证、提交、推送、创建 PR | `/android-ship` |
+| `android-learn` | 学习记录 | 跨 session 知识积累、搜索、清理 | `/android-learn [search|add|prune|stats]` |
 | `android-document-release` | 收尾 | 文档同步更新 (README/CHANGELOG/CLAUDE.md) | `/android-document-release` |
 
 ## 快速开始
@@ -286,9 +299,25 @@ autoplan 在关键节点自动保存检查点:
 │       ├── android-code-review/SKILL.md
 │       ├── android-qa/SKILL.md
 │       ├── android-investigate/SKILL.md
+│       ├── android-ship/SKILL.md
+│       ├── android-learn/SKILL.md
 │       ├── android-checkpoint/SKILL.md
-│       └── android-document-release/SKILL.md
+│       ├── android-document-release/SKILL.md
+│       └── android-shared/bin/
 ```
+
+### 11. 学习记录 (android-learn)
+
+```
+/android-learn              # 查看所有学习记录
+/android-learn search xxx   # 搜索学习记录
+/android-learn add          # 手动添加学习记录
+/android-learn prune        # 清理过期记录
+/android-learn stats        # 统计信息
+```
+
+跨 session 知识积累。自动记录 code-review/investigate/qa/tdd 发现的模式，
+下次 session 自动加载。支持跨项目搜索。
 
 ## 依赖要求
 

@@ -59,6 +59,20 @@ voice-triggers:
 
 **目标:** 建立问题的完整上下文，为后续排查提供线索。
 
+### 前置: 加载历史学习记录
+
+```bash
+# 加载与问题领域相关的历史学习记录
+LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --query "<bug领域关键词>" --limit 5 2>/dev/null || true)
+if [ -n "$LEARNINGS" ]; then
+  echo "=== 相关学习记录 ==="
+  echo "$LEARNINGS"
+fi
+```
+
+将 `<bug领域关键词>` 替换为问题描述中的关键术语（如 "NullPointerException"、"lifecycle"、"network" 等）。
+如果找到相关学习记录，在排查过程中优先验证这些已知坑点。
+
 ### 步骤 1: 收集问题基本信息
 
 根据调用方式，整理以下信息:
@@ -818,6 +832,30 @@ fun createOrder(order: Order) {
   - 模拟 API 返回 items 为 null 的场景
   - 验证应用不崩溃，UI 正确显示空状态
 ```
+
+---
+
+## Capture Learnings
+
+调查完成后，将根因和发现记录到学习系统以供未来 session 参考。
+
+**记录时机:**
+
+1. **根因确认后** — 使用 android-learnings-log 记录根因模式:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"investigate","type":"pitfall","key":"<根因简述>","insight":"<根因描述和触发条件>","confidence":9,"source":"observed","files":["<根因文件>"]}'
+   ```
+
+2. **发现新的排查路径** — 如果排查过程中发现了非直觉的调试方法，记录为 technique:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"investigate","type":"technique","key":"<方法名>","insight":"<方法描述>","confidence":7,"source":"inferred","files":[]}'
+   ```
+
+3. **验证或推翻历史记录** — 如果历史学习记录中的某条在本轮调查中被验证或推翻，更新置信度。
+
+**不记录:**
+- 临时性的环境问题（如网络超时、设备连接问题）
+- 第三方库的已知 bug（除非有项目特有 workaround）
 
 ---
 

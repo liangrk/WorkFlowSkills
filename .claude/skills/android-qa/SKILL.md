@@ -43,6 +43,19 @@ voice-triggers:
 
 ## Phase 0: 环境检测
 
+### 前置: 加载历史学习记录
+
+```bash
+# 加载与 QA 相关的历史学习记录
+LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+if [ -n "$LEARNINGS" ]; then
+  echo "=== 相关学习记录 ==="
+  echo "$LEARNINGS"
+fi
+```
+
+如果找到相关学习记录，在 QA 测试过程中重点关注这些已知的 bug 模式。
+
 ### 步骤 1: 确定项目根目录和基准分支
 
 > 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
@@ -993,6 +1006,29 @@ fi
 ```
 
 记录修复 commit hash 列表。
+
+---
+
+## Capture Learnings
+
+QA 完成后，将发现的典型 bug 模式记录到学习系统以供未来 session 参考。
+
+**记录时机:**
+
+1. **发现典型 bug 模式** — 如果 bug 不是简单的拼写/配置错误，而是具有普遍性的模式，使用 android-learnings-log 记录:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"qa","type":"pitfall","key":"<bug模式简述>","insight":"<bug描述和修复方式>","confidence":8,"source":"observed","files":["<bug文件>"]}'
+   ```
+
+2. **发现项目特有的测试配置问题** — 如特定的 lint 规则误报、测试环境配置坑，记录为 technique:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"qa","type":"technique","key":"<配置名>","insight":"<配置坑描述>","confidence":7,"source":"observed","files":["<配置文件>"]}'
+   ```
+
+**不记录:**
+- 一次性的拼写错误
+- 已被自动修复的简单 lint warning
+- 与历史记录完全重复的发现
 
 ---
 

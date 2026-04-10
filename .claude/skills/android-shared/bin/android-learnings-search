@@ -1,0 +1,99 @@
+#!/bin/bash
+# android-learnings-search: Search learnings
+# Usage: android-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
+set -euo pipefail
+
+TYPE=""
+QUERY=""
+LIMIT=5
+CROSS=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --type) TYPE="$2"; shift 2 ;;
+    --query) QUERY="$2"; shift 2 ;;
+    --limit) LIMIT="$2"; shift 2 ;;
+    --cross-project) CROSS="1"; shift ;;
+    *) shift ;;
+  esac
+done
+
+SLUG=$(git remote get-url origin 2>/dev/null | sed 's|.*/||;s|\.git$||;s|/$||' | tail -1)
+[ -z "$SLUG" ] && SLUG=$(basename "$(pwd)")
+LEARN_DIR="$HOME/.android-skills/projects"
+
+# Collect files
+FILES=""
+if [ -n "$CROSS" ]; then
+  FILES=$(find "$LEARN_DIR" -name "learnings.jsonl" -type f 2>/dev/null)
+else
+  [ -f "$LEARN_DIR/$SLUG/learnings.jsonl" ] && FILES="$LEARN_DIR/$SLUG/learnings.jsonl"
+fi
+
+if [ -z "$FILES" ]; then
+  echo "LEARNINGS: 0"
+  exit 0
+fi
+
+# Process with python3
+python3 -c "
+import json, sys, os, time
+from datetime import datetime
+
+now = datetime.utcnow()
+results = []
+seen = {}
+
+for f in '''$FILES'''.split():
+    try:
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line: continue
+                try:
+                    e = json.loads(line)
+                    if not e.get('key') or not e.get('type'):
+                        continue
+                    # Confidence decay
+                    conf = e.get('confidence', 5)
+                    if e.get('source') in ('observed', 'inferred'):
+                        days = (now - datetime.fromisoformat(e['ts'].replace('Z','+00:00'))).days
+                        conf = max(0, conf - days // 30)
+                    e['_eff'] = conf
+                    # Dedup: latest wins per key+type
+                    k = (e['key'], e['type'])
+                    if k not in seen or e['ts'] > seen[k][1]:
+                        seen[k] = (e, e['ts'])
+                except: pass
+    except: pass
+
+results = [v[0] for v in seen.values()]
+
+# Filter
+if '''$TYPE''':
+    results = [r for r in results if r['type'] == '''$TYPE''']
+if '''$QUERY''':
+    q = '''$QUERY'''.lower()
+    results = [r for r in results if q in r.get('key','').lower() or q in r.get('insight','').lower() or any(q in f.lower() for f in r.get('files',[]))]
+
+# Sort
+results.sort(key=lambda r: (-r['_eff'], r.get('ts','')))
+
+# Limit
+results = results[:int('''$LIMIT''')]
+
+# Output
+if not results:
+    print('LEARNINGS: 0 matches')
+else:
+    print(f'LEARNINGS: {len(results)} matches')
+    for r in results:
+        src = r.get('source','unknown')
+        ts = r['ts'][:10]
+        files = r.get('files',[])
+        cross = ' [cross-project]' if os.path.basename(os.path.dirname(f)) != '''$SLUG''' else ''
+        print(f'- [{r[\"key\"]}] (confidence: {r[\"_eff\"]}/10, {src}, {ts}){cross}')
+        print(f'  {r[\"insight\"]}')
+        if files:
+            print(f'  files: {\", \".join(files[:3])}')
+" 2>/dev/null || echo "LEARNINGS: parse error"

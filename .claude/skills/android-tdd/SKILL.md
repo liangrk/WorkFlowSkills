@@ -54,6 +54,19 @@ voice-triggers:
 
 在执行任何 TDD 流程前，自动检测项目测试基础设施。检测结果贯穿后续所有阶段。
 
+### 前置: 加载历史学习记录
+
+```bash
+# 加载与测试相关的历史学习记录
+LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+if [ -n "$LEARNINGS" ]; then
+  echo "=== 相关学习记录 ==="
+  echo "$LEARNINGS"
+fi
+```
+
+如果找到相关学习记录，在编写测试时注意这些已知的测试框架坑点（如 MockK inline mock 限制、协程测试调度器配置等）。
+
 ### 步骤 1: 确定项目根目录和基本信息
 
 ```bash
@@ -357,6 +370,89 @@ testFixtures:     未检测到
 
 **如果覆盖率工具未检测到:**
 提示用户在 build.gradle.kts 中添加 JaCoCo 插件配置，或使用 `./gradlew testDebugUnitTest` 执行测试后在 build/reports 中查找覆盖率数据。
+
+---
+
+### Phase 0.5: 测试基础设施引导 (按需)
+
+**触发条件:** Phase 0 检测到以下任意缺失:
+- 无测试框架依赖 (JUnit4/5)
+- 无 Mock 框架 (MockK/Mockito)
+- 无断言库 (Truth/AssertJ)
+- 无 JaCoCo 覆盖率工具配置
+- 无测试目录结构 (`app/src/test/` 不存在或为空)
+
+**不触发条件:** 所有测试基础设施齐全 → 跳过此阶段，输出 "Phase 0.5: 跳过 (测试基础设施齐全)"。
+
+**流程:**
+
+1. 生成缺失项列表:
+   ```
+   检测到以下测试基础设施缺失:
+   - ❌ JUnit5 依赖
+   - ❌ MockK 依赖
+   - ✅ Truth 断言库 (已配置)
+   - ❌ JaCoCo 覆盖率配置
+   - ❌ 测试目录结构
+   ```
+
+2. 使用 AskUserQuestion:
+   > 检测到测试基础设施缺失。是否自动配置?
+   > - A) 全部自动配置
+   > - B) 仅配置缺失项
+   > - C) 跳过，我手动配置
+
+3. 如果用户选择 A 或 B，执行以下操作:
+
+   **添加测试依赖** (根据 Phase 0 检测结果选择版本):
+   ```kotlin
+   // app/build.gradle.kts - dependencies 块
+   testImplementation("junit:junit:5:<version>")
+   testImplementation("io.mockk:mockk:<version>")
+   testImplementation("com.google.truth:truth:<version>")
+   ```
+
+   **创建测试目录结构:**
+   ```
+   app/src/test/java/com/example/<module>/
+     ├── <ClassName>Test.kt
+     └── fixtures/           ← 测试夹具数据
+   ```
+
+   **配置 JaCoCo** (在 app/build.gradle.kts 的 android 块中):
+   ```kotlin
+   testImplementation("jacoco-org.jacoco:org.jacoco.agent:<version>")
+   ```
+
+   ```kotlin
+   // android 块中
+   testCoverageEnabled = true
+   ```
+   
+   ```kotlin
+   // app/build.gradle.kts 顶层 (after plugins)
+   jacoco { toolVersion = "<version>" }
+   ```
+
+   **创建验证测试:**
+   ```kotlin
+   import org.junit.Test
+   import com.google.common.truth.Truth.assertThat
+
+   class SmokeTest {
+       @Test
+       fun `test infrastructure works`() {
+           assertThat(true).isTrue()
+       }
+   }
+   ```
+
+4. 运行验证:
+   ```bash
+   ./gradlew testDebugUnitTest --tests ".*SmokeTest" 2>&1 | tail -10
+   ```
+
+5. 验证通过后，提示: "测试基础设施配置完成。可以继续 TDD 流程。"
 
 ---
 
@@ -1196,6 +1292,28 @@ Round 4 (独立验收): PASS
 
 此更新由 worktree-runner 在收到 TDD 完成通知后执行，
 不是 android-tdd skill 的职责。
+
+---
+
+## Capture Learnings
+
+TDD 完成后，将测试过程中的发现记录到学习系统以供未来 session 参考。
+
+**记录时机:**
+
+1. **发现测试框架特有坑** — 如 MockK inline mock 限制、JUnit5 参数化测试配置、协程 TestDispatcher 边界，使用 android-learnings-log 记录:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"tdd","type":"pitfall","key":"<框架坑简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<相关测试文件>"]}'
+   ```
+
+2. **发现有效的测试模式** — 如某个 mock 策略特别高效、某个边界测试特别有效，记录为 technique:
+   ```bash
+   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"tdd","type":"technique","key":"<模式名>","insight":"<模式描述>","confidence":7,"source":"inferred","files":[]}'
+   ```
+
+**不记录:**
+- 常规的测试编写过程
+- 与历史记录完全重复的发现
 
 ---
 
