@@ -795,18 +795,154 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
 
 任务中所有步骤完成后，执行验证。
 
-**首先检测是否为 Android 项目:**
+#### 5.0: 构建工具检测与自动配置
+
+**首先检测项目使用的构建系统:**
 
 ```bash
+# --- 构建系统检测 ---
+BUILD_SYSTEM="unknown"
+
 if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ] || \
    [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
-  echo "ANDROID_PROJECT"
+  BUILD_SYSTEM="gradle"
+fi
+
+if [ -f "WORKSPACE" ] || find . -maxdepth 2 -name "BUILD" -o -name "BUILD.bazel" 2>/dev/null | grep -q .; then
+  # Bazel 项目也可能同时有 build.gradle (混合构建)
+  if [ "$BUILD_SYSTEM" = "gradle" ]; then
+    BUILD_SYSTEM="gradle+bazel"
+  else
+    BUILD_SYSTEM="bazel"
+  fi
+fi
+
+# CMake / ndk-build 检测
+if [ -f "CMakeLists.txt" ] || find . -maxdepth 3 -name "CMakeLists.txt" 2>/dev/null | grep -q .; then
+  BUILD_SYSTEM="${BUILD_SYSTEM}+cmake"
+fi
+
+if [ -f "Android.mk" ] || [ -f "Application.mk" ]; then
+  BUILD_SYSTEM="${BUILD_SYSTEM}+ndk-build"
+fi
+
+echo "BUILD_SYSTEM: $BUILD_SYSTEM"
+```
+
+**检测所需构建工具是否可用:**
+
+```bash
+# --- 工具可用性检查 ---
+MISSING_TOOLS=""
+
+# Gradle
+if echo "$BUILD_SYSTEM" | grep -q "gradle"; then
+  if ! command -v java &>/dev/null; then
+    MISSING_TOOLS="$MISSING_TOOLS java(JDK)"
+  fi
+  if [ ! -f "./gradlew" ]; then
+    MISSING_TOOLS="$MISSING_TOOLS gradlew"
+  fi
+fi
+
+# Bazel
+if echo "$BUILD_SYSTEM" | grep -q "bazel"; then
+  if ! command -v bazel &>/dev/null; then
+    MISSING_TOOLS="$MISSING_TOOLS bazel"
+  fi
+fi
+
+# CMake
+if echo "$BUILD_SYSTEM" | grep -q "cmake"; then
+  if ! command -v cmake &>/dev/null; then
+    MISSING_TOOLS="$MISSING_TOOLS cmake"
+  fi
+fi
+
+# NDK
+if echo "$BUILD_SYSTEM" | grep -q "ndk-build"; then
+  if ! command -v ndk-build &>/dev/null; then
+    NDK_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/ndk"
+    if [ -z "$(ls "$NDK_HOME" 2>/dev/null)" ]; then
+      MISSING_TOOLS="$MISSING_TOOLS android-ndk"
+    fi
+  fi
+fi
+
+if [ -n "$MISSING_TOOLS" ]; then
+  echo "MISSING_TOOLS: $MISSING_TOOLS"
 else
-  echo "NOT_ANDROID"
+  echo "ALL_TOOLS: available"
 fi
 ```
 
-**如果是 Android 项目，按顺序执行以下三项检查。任一项失败则停止。**
+**工具缺失时自动配置 (subagent):**
+
+当检测到 `MISSING_TOOLS` 非空时，**不要跳过验证，也不要直接询问用户**。
+先派发 subagent 尝试自动配置:
+
+```
+使用 Agent 工具派发环境配置 subagent:
+
+你负责在当前环境中安装缺失的构建工具。只安装，不做其他事情。
+
+## 缺失工具
+<MISSING_TOOLS 列表>
+
+## 当前环境信息
+- OS: <操作系统>
+- 项目路径: <WORKTREE_PATH>
+- ANDROID_HOME: <值>
+- 已安装的工具: <列出可用的>
+
+## 安装指南
+
+按以下优先级尝试安装:
+
+### Bazel
+1. 检查是否有 bazelisk (bazel 版本管理器): `bazelisk version`
+2. 尝试通过包管理器安装:
+   - macOS: `brew install bazelisk`
+   - Linux (Ubuntu/Debian): `sudo apt install bazel` 或下载 bazelisk 二进制
+   - Windows: `choco install bazel` 或下载 bazelisk
+3. 如果 bazelisk 不可用，尝试下载 Bazel 二进制:
+   - 从 https://github.com/bazelbuild/bazel/releases 下载对应平台的安装包
+4. 安装后验证: `bazel --version`
+
+### CMake
+1. Android SDK 自带的 CMake: 检查 $ANDROID_HOME/cmake/ 下是否有版本
+2. 如果有，将其加入 PATH: `export PATH="$ANDROID_HOME/cmake/<version>/bin:$PATH"`
+3. 如果没有，通过包管理器安装
+
+### JDK
+1. 检查已安装的 JDK: `java -version`
+2. Android 项目通常需要 JDK 17+
+3. macOS: `brew install openjdk@17`
+4. Linux: `sudo apt install openjdk-17-jdk`
+5. Windows: 从 Adoptium 下载
+
+## 输出
+安装完成后报告:
+- 哪些工具安装成功
+- 哪些工具安装失败 (附原因)
+- 安装后的版本信息
+```
+
+**处理 subagent 配置结果:**
+
+| 结果 | 处理 |
+|------|------|
+| 全部安装成功 | 继续执行步骤 5.1 验证 |
+| 部分安装成功 | 安装成功的工具对应步骤正常验证，失败的工具对应步骤降级处理 |
+| 全部安装失败 | 报告失败原因，询问用户手动安装或选择中止任务 |
+
+> **核心原则: 不因为工具缺失就跳过测试验证。** 如果工具确实无法安装，
+> 将该步骤标记为 `"blocked"` (而非 `"skipped"`)，记录到 tasks.json，
+> 并在最终报告中明确标注哪些验证因环境缺失被阻断。
+
+#### 5.1: 构建验证
+
+**如果是 Android 项目 (Gradle)，按顺序执行以下检查。任一项失败则停止。**
 
 ```bash
 # 1. Gradle 构建
@@ -824,26 +960,62 @@ echo "=== Lint 检查 ==="
 ./gradlew lintDebug --no-daemon 2>&1
 LINT_EXIT=$?
 
-# 3. 单元测试 (仅在 lint 通过后执行)
+# 3. 单元测试 (不可跳过 — 见 5.2)
 echo "=== 单元测试 ==="
 ./gradlew testDebugUnitTest --no-daemon 2>&1
 TEST_EXIT=$?
 ```
 
-**如果任一检查失败:**
+**如果是 Bazel 项目或混合构建 (Gradle+Bazel):**
+
+```bash
+# 1. Gradle 构建 (如果适用)
+if echo "$BUILD_SYSTEM" | grep -q "gradle"; then
+  echo "=== Gradle Build ==="
+  ./gradlew assembleDebug --no-daemon 2>&1
+fi
+
+# 2. Bazel 构建 (如果适用)
+if echo "$BUILD_SYSTEM" | grep -q "bazel"; then
+  echo "=== Bazel Build ==="
+  bazel build //... --config=android 2>&1
+fi
+
+# 3. Bazel 测试 (不可跳过)
+if echo "$BUILD_SYSTEM" | grep -q "bazel"; then
+  echo "=== Bazel Test ==="
+  bazel test //... --test_output=all 2>&1
+fi
+
+# 4. Gradle 单元测试 (不可跳过)
+if echo "$BUILD_SYSTEM" | grep -q "gradle"; then
+  echo "=== Gradle Unit Test ==="
+  ./gradlew testDebugUnitTest --no-daemon 2>&1
+fi
+```
+
+**如果构建检查失败:**
 - 显示错误输出（最后 50 行）
 - AskUserQuestion:
-  > Android 验证失败于: [哪个步骤]
+  > 构建验证失败于: [哪个步骤]
   > - A) 修复后重试
-  > - B) 跳过此检查并提交
-  > - C) 中止任务 (保持进行中状态)
+  > - B) 中止任务 (保持进行中状态)
 
-选 A: 回到 Phase 2 步骤 4，由用户指导修复。
-选 B: 继续提交，在 verification 中将该检查标记为 `"skipped"`。
-选 C: 停止执行，任务保持进行中状态。
+#### 5.2: 测试验证 (不可跳过)
 
-**如果不是 Android 项目:**
-跳过所有 Android 验证。提示: "未检测到 Android 项目 — 跳过 Gradle/lint/测试验证。"
+**单元测试是质量保障的底线，不允许跳过。**
+
+当构建通过后，测试验证必须执行。处理逻辑:
+
+| 测试结果 | 处理 |
+|---------|------|
+| 全部通过 | 继续 commit |
+| 部分失败 | 进入自动修复循环 (最多 3 轮) |
+| 3 轮修复后仍有失败 | 标记任务为 `"test-failed"`，中止任务，不提交 |
+| 工具缺失导致无法运行测试 | 标记为 `"blocked"`，不提交，在报告中标注 |
+
+**测试验证没有"跳过"选项。** 与构建验证不同，测试失败时不提供跳过选项。
+如果测试确实需要跳过，必须由用户明确在命令行使用 `--skip-tests` 参数全局指定。
 
 ### 步骤 5.5: PRD 验证 (可选)
 
@@ -1531,6 +1703,8 @@ Plan 执行完成后，将 operational 发现记录到学习系统以供未来 s
 | Android 验证超时 (>5 分钟) | 询问用户: 继续等待或跳过 |
 | 并行任务间合并冲突 | 暂停合并流程，提示用户手动解决冲突文件，解决后输入继续 |
 | Gradle daemon 锁冲突 (分发文件) | worktree 中所有 Gradle 调用使用 `--no-daemon`，避免 daemon 锁争抢 |
+| 构建工具缺失 (Bazel/CMake/NDK) | 自动派发 subagent 尝试安装，安装失败则标记为 `blocked` 不跳过 |
+| 测试验证失败 | 不允许跳过，最多 3 轮自动修复，仍失败则标记 `test-failed` 并中止任务 |
 | 并行 subagent 中某个失败 | 标记该任务为 `failed`，其他任务继续执行。波次完成后统一报告 |
 | Worktree 创建失败 (并行模式) | 回退到串行模式执行该任务，在 plan 主 worktree 中运行 |
 | 磁盘空间不足 (多个 worktree) | 检测磁盘空间，不足时警告并建议: 减少并行度或清理已有 worktree |
