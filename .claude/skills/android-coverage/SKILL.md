@@ -258,6 +258,12 @@ fi
 
 2. 如果用户选择 A，执行以下操作:
 
+   先准备 Variant 变量:
+   ```bash
+   VARIANT_LOWER=$(echo "$VARIANT" | tr '[:upper:]' '[:lower:]')
+   echo "JaCoCo 自动引导使用 Variant: ${VARIANT} (${VARIANT_LOWER})"
+   ```
+
    **在 app/build.gradle.kts 顶层 (plugins 块之后) 添加:**
    ```kotlin
    jacoco { toolVersion = "0.8.11" }
@@ -266,7 +272,7 @@ fi
    **在 android 块中添加:**
    ```kotlin
    buildTypes {
-       debug {
+       ${VARIANT_LOWER} {
            testCoverageEnabled = true
            // ... 已有配置
        }
@@ -275,12 +281,12 @@ fi
 
    **在 android 块之后添加 JaCoCo 任务:**
    ```kotlin
-   tasks.register<JacocoReport>("createDebugUnitTestCoverageReport") {
-       dependsOn("testDebugUnitTest")
+   tasks.register<JacocoReport>("create${VARIANT}UnitTestCoverageReport") {
+       dependsOn("test${VARIANT}UnitTest")
        group = "reporting"
-       description = "Generate JaCoCo coverage report for debug unit tests"
+       description = "Generate JaCoCo coverage report for ${VARIANT_LOWER} unit tests"
 
-       val classDirectories = fileTree("${buildDir}/tmp/kotlin-classes/debug") {
+       val classDirectories = fileTree("${buildDir}/tmp/kotlin-classes/${VARIANT_LOWER}") {
            exclude(
                "**/R.class",
                "**/R\$*.class",
@@ -294,7 +300,7 @@ fi
            )
        }
        val sourceDirectories = files("${projectDir}/src/main/java", "${projectDir}/src/main/kotlin")
-       val executionData = files("${buildDir}/jacoco/testDebugUnitTest.exec")
+       val executionData = files("${buildDir}/jacoco/test${VARIANT}UnitTest.exec")
 
        reports {
            xml.required.set(true)
@@ -325,7 +331,7 @@ Gradle:       gradlew available
 
 --- 覆盖率工具 ---
 JaCoCo:       ✅ 已配置 / ❌ 未配置
-覆盖率报告:   createDebugUnitTestCoverageReport
+覆盖率报告:   create${VARIANT}UnitTestCoverageReport
 覆盖率门禁:   80% (行) / 90% (关键路径) / 75% (分支)
 
 --- 测试基础设施 ---
@@ -804,7 +810,7 @@ P2 未达标: 2 个
 
 ```bash
 # 收集新增的测试文件
-NEW_TEST_FILES=$(git diff --name-only --diff-filter=A -- "*.kt" "*.java" 2>/dev/null | grep -E "src/test/|src/androidTest/")
+NEW_TEST_FILES=$(git diff --name-only --diff-filter=A -- "*.kt" "*.java" 2>/dev/null | grep -E "src/test/|src/androidTest/|src/unitTest/|src/.*/test/")
 
 if [ -n "$NEW_TEST_FILES" ]; then
   git add $NEW_TEST_FILES

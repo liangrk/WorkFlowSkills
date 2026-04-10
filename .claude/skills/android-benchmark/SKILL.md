@@ -111,6 +111,22 @@ echo "WORKTREE: $WORKTREE_PATH"
 echo "BRANCH: $WORKTREE_NAME"
 ```
 
+### 步骤 1.5: Gradle 环境预热
+
+worktree 创建后需要预热 Gradle 缓存，确保构建配置与主分支一致。
+
+```bash
+# 预热 Gradle 环境 (确保依赖解析和缓存与主分支一致)
+echo "预热 Gradle 环境..."
+./gradlew --no-daemon help 2>&1 | tail -3
+
+# 验证 ProGuard/R8 规则文件存在
+ls app/proguard-rules.pro 2>/dev/null && echo "PROGUARD_RULES: FOUND" || echo "WARNING: 未找到 proguard-rules.pro"
+
+# 验证签名配置 (Release 构建需要)
+grep -r "signingConfigs" app/build.gradle* 2>/dev/null | head -3
+```
+
 ### 步骤 2: 列出最近 Commit
 
 ```bash
@@ -209,6 +225,23 @@ if [ -z "$PACKAGE_NAME" ]; then
   PACKAGE_NAME=$(grep -r "namespace" app/build.gradle* 2>/dev/null | head -1 | sed 's/.*namespace[[:space:]]*[\"'"'"']*\([a-z.]*\)[\"'"'"']*.*/\1/')
 fi
 echo "PACKAGE_NAME: $PACKAGE_NAME"
+
+# --- 解析 launcher Activity (替代硬编码 MainActivity) ---
+LAUNCHER_ACTIVITY=$(grep -B5 'android.intent.category.LAUNCHER' \
+  app/src/main/AndroidManifest.xml 2>/dev/null \
+  | grep 'android:name' | head -1 | sed 's/.*android:name="\([^"]*\)".*/\1/')
+if [ -z "$LAUNCHER_ACTIVITY" ]; then
+  LAUNCHER_ACTIVITY=$(grep -B5 'android.intent.action.MAIN' \
+    app/src/main/AndroidManifest.xml 2>/dev/null \
+    | grep 'android:name' | head -1 | sed 's/.*android:name="\([^"]*\)".*/\1/')
+fi
+echo "LAUNCHER_ACTIVITY: ${LAUNCHER_ACTIVITY:-未检测到，将使用 MainActivity 作为 fallback}"
+
+# --- 测量变体选择 ---
+# 有设备 + Release 构建 → 优先测量 Release (./gradlew assembleRelease && adb install)
+# 有设备 + 仅 Debug → 测量 Debug，报告标注"非 Release 构建"
+# 无设备 → Tier 3 静态分析，报告标注"估算值"
+echo "MEASUREMENT_VARIANT: ${LAUNCHER_ACTIVITY:+Debug/Release 按设备状态选择}"
 ```
 
 ---
@@ -250,9 +283,14 @@ for i in 1 2 3; do
   # 清除应用状态
   adb shell am force-stop "$PACKAGE_NAME"
   adb shell pm clear "$PACKAGE_NAME" 2>/dev/null || true
+  # 注意: pm clear 会清除所有应用数据（登录态、SharedPreferences、数据库）。
+  # 如果应用首次启动需要登录，pm clear 后可能无法正常进入主界面。
+  # 替代方案: 仅 force-stop (模拟热启动而非冷启动)
+  #   adb shell am force-stop "$PACKAGE_NAME"
+  #   然后跳过 pm clear，在报告中标注 "热启动测量"
 
   # 测量启动时间
-  RESULT=$(adb shell am start-activity -W -n "$PACKAGE_NAME/.MainActivity" 2>&1)
+  RESULT=$(adb shell am start-activity -W -n "$PACKAGE_NAME/.${LAUNCHER_ACTIVITY:-MainActivity}" 2>&1)
   TOTAL_TIME=$(echo "$RESULT" | grep "TotalTime" | awk '{print $2}')
   WAIT_TIME=$(echo "$RESULT" | grep "WaitTime" | awk '{print $2}')
   echo "Run $i: TotalTime=${TOTAL_TIME}ms, WaitTime=${WAIT_TIME}ms"
@@ -270,9 +308,9 @@ APP_ONCREATE=$(find . -path "*/main/java/*" -name "Application.kt" -o -name "*Ap
 echo "=== Application Class ==="
 echo "$APP_ONCREATE"
 
-# 分析 MainActivity.onCreate
-MAIN_ACTIVITY=$(find . -path "*/main/java/*" -name "MainActivity.kt" -o -name "MainActivity.java" 2>/dev/null | head -3)
-echo "=== MainActivity ==="
+# 分析 Launcher Activity.onCreate
+LAUNCHER_FILE=$(find . -path "*/main/java/*" \( -name "${LAUNCHER_ACTIVITY:-MainActivity}.kt" -o -name "${LAUNCHER_ACTIVITY:-MainActivity}.java" \) 2>/dev/null | head -3)
+echo "=== Launcher Activity (${LAUNCHER_ACTIVITY:-MainActivity}) ==="
 echo "$MAIN_ACTIVITY"
 ```
 
@@ -308,20 +346,32 @@ echo "$MAIN_ACTIVITY"
 **Tier 2 (adb):**
 
 ```bash
-# 重置帧率统计
+# Tier 2 (adb) — 自动化帧率采集
+
+# 1. 启动应用
+adb shell am start -n "$PACKAGE_NAME/.${LAUNCHER_ACTIVITY:-MainActivity}"
+sleep 3
+
+# 2. 重置帧率统计
 adb shell dumpsys gfxinfo "$PACKAGE_NAME" reset
 
-# 执行一些操作后收集帧率数据
-adb shell dumpsys gfxinfo "$PACKAGE_NAME" framestats 2>&1
+# 3. 自动执行标准操作序列:
+#    - 冷启动已经记录在步骤 2
+#    - 模拟垂直滑动 (最常见的帧率测试场景)
+adb shell input swipe 500 1500 500 500 800
+sleep 1
+adb shell input swipe 500 1500 500 500 800
+sleep 1
 
-# 解析 jank 百分比
-# 重点关注:
-# - Janky frames: 超过 16.67ms 的帧
-# - 90th percentile: 90% 帧的耗时
-# - 95th percentile: 95% 帧的耗时
-echo "=== Frame Stats ==="
-echo "Jank percentage: $(计算结果)%"
-echo "90th percentile: $(计算结果)ms"
+# 4. 收集帧率数据
+adb shell dumpsys gfxinfo "$PACKAGE_NAME" framestats 2>&1 > /tmp/framestats.txt
+
+# 5. 解析 Janky frames 百分比
+TOTAL_FRAMES=$(grep "Janky frames" /tmp/framestats.txt | grep -oP '\d+' | head -1 || echo "N/A")
+echo "Janky frames: ${TOTAL_FRAMES}"
+
+# 注意: 如果应用需要特定操作路径（如导航到列表页），
+# 可在调用时通过参数指定: /android-benchmark jank --scenario "scroll-list"
 ```
 
 **Tier 3 (static analysis):**
@@ -606,7 +656,7 @@ echo "Graphics:     $(提取值) MB"
 回归检测规则:
 - 优化冷启动 -> 重新检查内存 (延迟初始化可能增加峰值内存)
 - 优化帧率 -> 重新检查内存 (减少层级可能影响绘制内存)
-- 优化内存 -> 重新检查帧率 (缩小 Bitmap 可能影响渲染质量)
+- 优化内存 -> 重新检查帧率 (释放内存后 GC 压力降低，帧率可能改善；但过度压缩 Bitmap 可能增加解码耗时)
 
 任何维度回归 >10% -> 自动回滚本轮修改
 ```
@@ -635,6 +685,13 @@ echo "Graphics:     $(提取值) MB"
 ## Phase 4: 编译验收
 
 验证优化后的代码完整性和正确性。
+
+### 步骤 0: 模式判断
+
+> **报告模式:** 仅执行步骤 1（编译验证），跳过步骤 2-3。
+> 基线数据已在 Phase 1 采集，无需重复测量。直接使用 Phase 1 数据生成报告。
+>
+> **--auto 模式:** 执行全部步骤 1-3。
 
 ### 步骤 1: Debug + Release 编译
 
