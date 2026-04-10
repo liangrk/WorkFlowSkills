@@ -22,7 +22,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 | 保存进度、恢复状态 | `android-checkpoint` | "保存进度"、"恢复"、"checkpoint" |
 | Figma 设计审查 | `android-design-review` | "设计审查"、"Figma"、"设计稿" |
 | 文档更新 | `android-document-release` | "更新文档"、"文档同步" |
-| 提交、push、创建 PR | `android-ship` | "提交"、"push"、"创建 PR"、"ship" |
+| 提交、push、创建 PR、合并分支 | `android-ship` | "提交"、"push"、"创建 PR"、"ship"、"合并分支"、"合并到 master" |
 | 学习记录、知识管理 | `android-learn` | "学习记录"、"知识"、"learnings" |
 
 ## Conventions

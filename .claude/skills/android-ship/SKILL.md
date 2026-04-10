@@ -1,10 +1,11 @@
 ---
 name: android-ship
 description: |
-  Android 交付工作流。范围漂移检测、最终验证、提交、推送、创建 PR。
-  在功能开发完成后，执行从 commit 到 PR 的完整交付流程。
+  Android 交付工作流。范围漂移检测、最终验证、提交、推送、创建 PR、合并分支。
+  在功能开发完成后，执行从 commit 到 PR 或直接合并到目标分支的完整交付流程。
   自动检测范围漂移，验证构建和 lint，智能分组提交，生成 PR 描述。
-  适用场景: 功能开发完成后交付、创建 PR、发布前最终检查。
+  支持将 worktree 分支直接合并到 master/main 等目标分支。
+  适用场景: 功能开发完成后交付、创建 PR、合并分支、发布前最终检查。
 invocation: /android-ship
 args: [auto]
 voice-triggers:
@@ -12,14 +13,16 @@ voice-triggers:
   - "创建 PR"
   - "推送代码"
   - "发布"
+  - "合并分支"
+  - "合并到 master"
 ---
 
 # Android Ship
 
 ## 概述
 
-从代码完成到 PR 创建的完整交付流水线。六阶段自动化: 状态检测 → 范围漂移检测 →
-最终验证 → 智能提交 → 推送 → 创建 PR → 触发文档更新。
+从代码完成到 PR 创建或直接合并的完整交付流水线。七阶段自动化: 状态检测 → 范围漂移检测 →
+最终验证 → 智能提交 → 推送 → 创建 PR → 合并到目标分支 (可选) → 触发文档更新。
 
 **启动时声明:** "我正在使用 android-ship skill。"
 
@@ -30,7 +33,9 @@ voice-triggers:
 ```bash
 /android-ship                  # 交互式执行，逐步确认
 /android-ship auto             # 自动执行全部流程，仅在异常时暂停
-/android-ship <phase>          # 从指定阶段开始 (0-6)
+/android-ship <phase>          # 从指定阶段开始 (0-7)
+/android-ship merge            # 直接进入合并流程，合并当前分支到目标分支
+/android-ship merge <branch>   # 合并当前分支到指定分支
 ```
 
 **参数处理:**
@@ -38,6 +43,7 @@ voice-triggers:
 - `auto`: 自动执行全部阶段，仅在遇到异常（构建失败、范围漂移、QA BLOCKER）时暂停
 - `<phase>`: 直接从指定阶段编号开始。要求之前阶段已通过
   - 例如 `/android-ship 3` 直接进入提交阶段（跳过状态检测、漂移检测、最终验证）
+- `merge [target]`: 直接跳到 Phase 7 合并流程。`target` 默认为 base branch (master/main)
 
 ---
 
@@ -450,15 +456,24 @@ echo "OK: 推送成功"
 ### 步骤 1: 检查 gh CLI
 
 ```bash
-if ! command -v gh &>/dev/null; then
+HAS_GH=false
+if command -v gh &>/dev/null; then
+  HAS_GH=true
+fi
+
+if [ "$HAS_GH" = "false" ]; then
   echo "WARNING: 未安装 gh CLI，跳过 PR 创建"
   echo "安装指南: https://cli.github.com/"
   echo "安装后执行: gh pr create --title '...' --body '...'"
-  exit 0
+  # 不退出，继续后续阶段
 fi
 ```
 
+> **注意:** gh CLI 缺失不阻塞流程。后续 Phase 7 (合并) 不依赖 gh。
+
 ### 步骤 2: 检查 PR 是否已存在
+
+> 以下步骤仅在 `$HAS_GH = true` 时执行。
 
 ```bash
 EXISTING_PR=$(gh pr list --head "$BRANCH" --json number,title,url --jq '.[0]' 2>/dev/null)
@@ -609,7 +624,160 @@ fi
 
 ---
 
-## 异常处理
+## Phase 7: 合并到目标分支 (可选)
+
+将当前分支直接合并到目标分支（如 master），适用于不需要 PR 审查的场景。
+
+**触发条件:**
+- 调用 `/android-ship merge` 或 `/android-ship merge <branch>` 直接进入
+- 或在 Phase 5 完成后，使用 AskUserQuestion 询问:
+  > 分支已推送。是否要合并到目标分支?
+  > - A) 合并到 <BASE_BRANCH>
+  > - B) 合并到其他分支
+  > - C) 跳过，保留当前分支
+
+### 步骤 1: 确认目标分支和合并信息
+
+```bash
+# 记录当前分支
+SOURCE_BRANCH="$BRANCH"
+TARGET_BRANCH="${1:-$BASE_BRANCH}"
+
+# 确认目标分支存在
+if ! git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
+  echo "ERROR: 目标分支 $TARGET_BRANCH 不存在"
+  exit 1
+fi
+
+# 统计将合并的变更
+COMMIT_COUNT=$(git rev-list "$TARGET_BRANCH"..HEAD --count 2>/dev/null || echo "?")
+FILE_COUNT=$(git diff "$TARGET_BRANCH"...HEAD --name-only 2>/dev/null | wc -l)
+
+echo "=== 合并预览 ==="
+echo "源分支:   $SOURCE_BRANCH"
+echo "目标分支: $TARGET_BRANCH"
+echo "待合并:   $COMMIT_COUNT 个 commit, $FILE_COUNT 个文件变更"
+git log "$TARGET_BRANCH"..HEAD --oneline 2>/dev/null
+```
+
+使用 AskUserQuestion 确认:
+> 确认合并 $SOURCE_BRANCH → $TARGET_BRANCH?
+> - A) 确认合并
+> - B) 取消
+
+### 步骤 2: 执行合并
+
+```bash
+# 记录合并前的 HEAD (用于回退)
+BEFORE_MERGE=$(git rev-parse "$TARGET_BRANCH")
+
+# 切换到目标分支并更新
+git checkout "$TARGET_BRANCH"
+git pull origin "$TARGET_BRANCH" 2>/dev/null || true
+
+# 执行合并 (--no-ff 保留合并历史)
+git merge "$SOURCE_BRANCH" --no-ff -m "merge: $SOURCE_BRANCH into $TARGET_BRANCH"
+
+MERGE_EXIT=$?
+if [ $MERGE_EXIT -ne 0 ]; then
+  echo "ERROR: 合并产生冲突!"
+  echo ""
+  echo "冲突文件:"
+  git diff --name-only --diff-filter=U
+  echo ""
+  echo "处理方式:"
+  echo "  1. 手动解决冲突后: git add . && git commit --no-edit"
+  echo "  2. 放弃合并: git merge --abort && git checkout $SOURCE_BRANCH"
+  echo ""
+  echo "也可使用 /android-git-surgery resolve 自动解决冲突"
+  exit 1
+fi
+
+echo "OK: 合并成功"
+```
+
+### 步骤 3: 合并后验证
+
+**如果是 Android 项目 (有 build.gradle):**
+
+```bash
+# 编译验证
+echo ">>> 合并后编译验证..."
+./gradlew assembleDebug 2>&1 | tail -10
+BUILD_EXIT=$?
+
+if [ $BUILD_EXIT -ne 0 ]; then
+  echo "ERROR: 合并后编译失败! 建议: git merge --abort 或 git reset --hard $BEFORE_MERGE"
+  exit 1
+fi
+
+# 单元测试验证
+echo ">>> 合并后测试验证..."
+./gradlew testDebugUnitTest 2>&1 | tail -10
+TEST_EXIT=$?
+
+if [ $TEST_EXIT -ne 0 ]; then
+  echo "WARNING: 合并后测试失败，建议检查"
+fi
+```
+
+**如果非 Android 项目 (纯文档/skill 项目):**
+
+```bash
+# 仅检查合并状态
+echo ">>> 合并状态检查..."
+git status --short
+git log --oneline -5
+echo "OK: 非 Android 项目，跳过编译验证"
+```
+
+### 步骤 4: 推送合并结果
+
+```bash
+echo ">>> 推送 $TARGET_BRANCH..."
+git push origin "$TARGET_BRANCH"
+echo "OK: 推送成功"
+```
+
+### 步骤 5: 清理 (可选)
+
+合并成功后，询问是否清理:
+
+> 合并完成。是否清理源分支和 worktree?
+> - A) 全部清理 (删除分支 + worktree)
+> - B) 仅删除远程分支 (保留本地)
+> - C) 保留所有，不清理
+
+```bash
+# A) 全部清理
+git push origin --delete "$SOURCE_BRANCH" 2>/dev/null || true
+git branch -d "$SOURCE_BRANCH"
+
+# 如果当前在 worktree 中，清理 worktree
+CURRENT_WORKTREE_PATH=$(git worktree list 2>/dev/null | grep -v "bare" | while read -r p _; do
+  if [ "$(cd "$p" 2>/dev/null && pwd)" = "$(pwd)" ]; then echo "$p"; fi
+done)
+if [ -n "$CURRENT_WORKTREE_PATH" ] && [ "$CURRENT_WORKTREE_PATH" != "$(git rev-parse --show-toplevel 2>/dev/null)" ]; then
+  cd "$(git rev-parse --show-toplevel)"
+  git worktree remove "$CURRENT_WORKTREE_PATH" 2>/dev/null || true
+fi
+
+# 切换回目标分支
+git checkout "$TARGET_BRANCH"
+```
+
+### 步骤 6: 输出合并摘要
+
+```
+合并完成
+═══════════════════════════════════════
+$SOURCE_BRANCH → $TARGET_BRANCH
+Commit: $COMMIT_COUNT 个
+验证:   PASSED / FAILED
+清理:   已清理 / 已保留
+```
+
+---
 
 | 场景 | 处理方式 |
 |------|----------|
@@ -619,7 +787,11 @@ fi
 | Lint 有 WARNING | 报告警告，不阻塞流程 |
 | QA 报告有未修复 BLOCKER | 警告提示，交互模式下等待确认，auto 模式记录并继续 |
 | PR 已存在 | 更新 PR body，不重复创建 |
-| 未安装 gh CLI | 跳过 PR 创建，提示安装方法 |
+| 未安装 gh CLI | 跳过 PR 创建，不阻塞后续流程 |
+| 合并冲突 | 暂停流程，提示手动解决或使用 /android-git-surgery resolve |
+| 合并后编译失败 | 提示回退: `git merge --abort` 或 `git reset --hard <before-merge>` |
+| 合并目标分支不存在 | 报错退出 |
+| 合并后清理 worktree 失败 | 报告警告，不阻塞 |
 | 推送失败 (冲突) | 报告错误，建议 `git pull --rebase` |
 | 推送失败 (权限) | 报告错误，提示检查认证 |
 | tasks.json 中有未完成任务 | 警告提示，不阻塞 |
@@ -640,9 +812,11 @@ Ship 完成
 
 分支:     <BRANCH> → <BASE_BRANCH>
 范围检测: <CLEAN / DRIFT DETECTED / SKIPPED>
-验证:     assembleDebug PASSED | lintDebug PASSED
+验证:     assembleDebug PASSED | lintDebug PASSED | SKIPPED
 提交:     <N> commits
-PR:       <PR_URL> (或 "未创建: <原因>")
+PR:       <PR_URL> (或 "未创建: gh 未安装")
+合并:     <TARGET_BRANCH> PASSED / SKIPPED / 未执行
+清理:     <已清理 / 已保留 / 未执行>
 文档更新: <已执行 / 已跳过>
 ```
 
