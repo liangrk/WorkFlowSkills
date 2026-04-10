@@ -101,7 +101,7 @@ fi
 ```bash
 # 检查是否在 worktree 中
 WORKTREE_LIST=$(git worktree list)
-WORKTREE_COUNT=$(echo "$WORKTREE_LIST" | wc -l)
+WORKTREE_COUNT=$(echo "$WORKTREE_LIST" | wc -l | tr -d ' ')
 
 if [ "$WORKTREE_COUNT" -gt 1 ]; then
   echo "INFO: 检测到 worktree 环境"
@@ -187,7 +187,7 @@ if [ -z "$CHANGED_FILES" ]; then
   CHANGED_FILES=$(git diff "$BASE_BRANCH"...HEAD --name-only 2>/dev/null)
 fi
 
-echo "实际变更文件 ($(echo "$CHANGED_FILES" | wc -l) 个):"
+echo "实际变更文件 ($(echo "$CHANGED_FILES" | wc -l | tr -d ' ') 个):"
 echo "$CHANGED_FILES"
 ```
 
@@ -651,7 +651,7 @@ fi
 
 # 统计将合并的变更
 COMMIT_COUNT=$(git rev-list "$TARGET_BRANCH"..HEAD --count 2>/dev/null || echo "?")
-FILE_COUNT=$(git diff "$TARGET_BRANCH"...HEAD --name-only 2>/dev/null | wc -l)
+FILE_COUNT=$(git diff "$TARGET_BRANCH"...HEAD --name-only 2>/dev/null | wc -l | tr -d ' ')
 
 echo "=== 合并预览 ==="
 echo "源分支:   $SOURCE_BRANCH"

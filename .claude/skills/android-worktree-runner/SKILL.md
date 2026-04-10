@@ -1028,14 +1028,14 @@ VERSION_MISMATCH=""
 
 # Bazel: 解析 WORKSPACE 或 .bazelversion
 if [ -f "WORKSPACE" ] && grep -q "bazel_version" WORKSPACE 2>/dev/null; then
-  REQUIRED_BAZEL=$(grep "bazel_version" WORKSPACE | grep -oP '"[^"]*"' | tr -d '"')
-  ACTUAL_BAZEL=$(bazel --version 2>/dev/null | head -1 | grep -oP '[\d.]+' | head -1)
+  REQUIRED_BAZEL=$(grep "bazel_version" WORKSPACE | sed -n 's/.*"\([^"]*\)".*/\1/p')
+  ACTUAL_BAZEL=$(bazel --version 2>/dev/null | head -1 | grep -oE '[0-9.]+' | head -1)
   if [ -n "$REQUIRED_BAZEL" ] && [ "$REQUIRED_BAZEL" != "$ACTUAL_BAZEL" ]; then
     VERSION_MISMATCH="$VERSION_MISMATCH bazel(need=$REQUIRED_BAZEL, have=$ACTUAL_BAZEL)"
   fi
 elif [ -f ".bazelversion" ]; then
   REQUIRED_BAZEL=$(cat .bazelversion)
-  ACTUAL_BAZEL=$(bazel --version 2>/dev/null | head -1 | grep -oP '[\d.]+' | head -1)
+  ACTUAL_BAZEL=$(bazel --version 2>/dev/null | head -1 | grep -oE '[0-9.]+' | head -1)
   if [ "$REQUIRED_BAZEL" != "$ACTUAL_BAZEL" ]; then
     VERSION_MISMATCH="$VERSION_MISMATCH bazel(need=$REQUIRED_BAZEL, have=$ACTUAL_BAZEL)"
   fi
@@ -1045,13 +1045,13 @@ fi
 if echo "$BUILD_SYSTEM" | grep -q "gradle"; then
   REQUIRED_JAVA=""
   # AGP 8.x 需要 JDK 17, AGP 7.x 需要 JDK 11
-  AGP_VERSION=$(grep -oP "com\.android\.application:[\d.]+" app/build.gradle app/build.gradle.kts 2>/dev/null | head -1 | grep -oP '[\d.]+$')
+  AGP_VERSION=$(grep -oE "com\.android\.application:[0-9.]+" app/build.gradle app/build.gradle.kts 2>/dev/null | head -1 | grep -oE '[0-9.]+$')
   if [ -n "$AGP_VERSION" ]; then
     AGP_MAJOR=$(echo "$AGP_VERSION" | cut -d. -f1)
     if [ "$AGP_MAJOR" -ge 8 ]; then REQUIRED_JAVA="17"; elif [ "$AGP_MAJOR" -ge 7 ]; then REQUIRED_JAVA="11"; fi
   fi
   if [ -n "$REQUIRED_JAVA" ]; then
-    ACTUAL_JAVA=$(java -version 2>&1 | head -1 | grep -oP '1\.\d+\.0' | head -1 | cut -d. -f1)
+    ACTUAL_JAVA=$(java -version 2>&1 | head -1 | grep -oE '1\.[0-9]+\.0' | head -1 | cut -d. -f1)
     if [ "$ACTUAL_JAVA" -lt "$REQUIRED_JAVA" ] 2>/dev/null; then
       VERSION_MISMATCH="$VERSION_MISMATCH jdk(need=$REQUIRED_JAVA, have=$ACTUAL_JAVA)"
     fi
@@ -1060,8 +1060,8 @@ fi
 
 # CMake: 解析 CMakeLists.txt
 if [ -f "CMakeLists.txt" ] && grep -q "cmake_minimum_required" CMakeLists.txt 2>/dev/null; then
-  REQUIRED_CMAKE=$(grep "cmake_minimum_required" CMakeLists.txt | grep -oP 'VERSION [\d.]+' | grep -oP '[\d.]+' | head -1)
-  ACTUAL_CMAKE=$(cmake --version 2>/dev/null | grep -oP '[\d.]+' | head -1)
+  REQUIRED_CMAKE=$(grep "cmake_minimum_required" CMakeLists.txt | grep -oE 'VERSION [0-9.]+' | grep -oE '[0-9.]+' | head -1)
+  ACTUAL_CMAKE=$(cmake --version 2>/dev/null | grep -oE '[0-9.]+' | head -1)
   if [ -n "$REQUIRED_CMAKE" ] && [ "$REQUIRED_CMAKE" != "$ACTUAL_CMAKE" ]; then
     VERSION_MISMATCH="$VERSION_MISMATCH cmake(need=$REQUIRED_CMAKE, have=$ACTUAL_CMAKE)"
   fi

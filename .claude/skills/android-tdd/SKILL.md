@@ -58,12 +58,14 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-bash .claude/skills/android-shared/bin/android-learnings-bootstrap 2>/dev/null || true
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
 # 加载与测试相关的历史学习记录
-LEARNINGS=$(bash .claude/skills/android-shared/bin/android-learnings-search --type pitfall --limit 5 2>/dev/null || true)
+LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
   echo "$LEARNINGS"
@@ -76,7 +78,8 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-ENV_JSON=$(bash .claude/skills/android-shared/bin/android-detect-env 2>/dev/null || true)
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
 脚本不可用时回退到以下内联检测命令。
@@ -268,8 +271,8 @@ echo "=== Instrumented Test Dirs ==="
 find "$PROJECT_ROOT" -path "*/src/androidTest/*" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | head -20
 
 # --- Count existing tests ---
-UNIT_TEST_COUNT=$(find "$PROJECT_ROOT" -path "*/src/test/*" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | wc -l)
-INSTRUMENTED_TEST_COUNT=$(find "$PROJECT_ROOT" -path "*/src/androidTest/*" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | wc -l)
+UNIT_TEST_COUNT=$(find "$PROJECT_ROOT" -path "*/src/test/*" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | wc -l | tr -d ' ')
+INSTRUMENTED_TEST_COUNT=$(find "$PROJECT_ROOT" -path "*/src/androidTest/*" -type f \( -name "*.kt" -o -name "*.java" \) 2>/dev/null | wc -l | tr -d ' ')
 
 echo "UNIT_TEST_FILES: $UNIT_TEST_COUNT"
 echo "INSTRUMENTED_TEST_FILES: $INSTRUMENTED_TEST_COUNT"
@@ -317,8 +320,8 @@ find "$PROJECT_ROOT" -name "jacocoTestReport.xml" -o -name "jacocoTestDebugUnitT
 
 ```bash
 # --- Language: Kotlin vs Java vs Mixed ---
-KOTLIN_FILES=$(find "$PROJECT_ROOT/app/src/main" -name "*.kt" 2>/dev/null | wc -l)
-JAVA_FILES=$(find "$PROJECT_ROOT/app/src/main" -name "*.java" 2>/dev/null | wc -l)
+KOTLIN_FILES=$(find "$PROJECT_ROOT/app/src/main" -name "*.kt" 2>/dev/null | wc -l | tr -d ' ')
+JAVA_FILES=$(find "$PROJECT_ROOT/app/src/main" -name "*.java" 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$KOTLIN_FILES" -gt 0 ] && [ "$JAVA_FILES" -gt 0 ]; then
   echo "LANGUAGE: Kotlin + Java (mixed)"
@@ -907,8 +910,8 @@ fi
 ```bash
 if [ -f "$JACOCO_XML" ]; then
   # 提取总体行覆盖率
-  LINE_COVERAGE=$(grep 'LINE' "$JACOCO_XML" | grep -oP 'missed="\d+"' | head -1)
-  BRANCH_COVERAGE=$(grep 'BRANCH' "$JACOCO_XML" | grep -oP 'missed="\d+"' | head -1)
+  LINE_COVERAGE=$(grep 'LINE' "$JACOCO_XML" | sed -n 's/.*missed="\([0-9]*\)".*/missed="\1"/p' | head -1)
+  BRANCH_COVERAGE=$(grep 'BRANCH' "$JACOCO_XML" | sed -n 's/.*missed="\([0-9]*\)".*/missed="\1"/p' | head -1)
 fi
 ```
 
@@ -1325,12 +1328,14 @@ TDD 完成后，将测试过程中的发现记录到学习系统以供未来 ses
 
 1. **发现测试框架特有坑** — 如 MockK inline mock 限制、JUnit5 参数化测试配置、协程 TestDispatcher 边界，使用 android-learnings-log 记录:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"tdd","type":"pitfall","key":"<框架坑简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<相关测试文件>"]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"tdd","type":"pitfall","key":"<框架坑简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<相关测试文件>"]}'
    ```
 
 2. **发现有效的测试模式** — 如某个 mock 策略特别高效、某个边界测试特别有效，记录为 technique:
    ```bash
-   bash .claude/skills/android-shared/bin/android-learnings-log '{"skill":"tdd","type":"technique","key":"<模式名>","insight":"<模式描述>","confidence":7,"source":"inferred","files":[]}'
+   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   bash "$SHARED_BIN/android-learnings-log" '{"skill":"tdd","type":"technique","key":"<模式名>","insight":"<模式描述>","confidence":7,"source":"inferred","files":[]}'
    ```
 
 **不记录:**

@@ -134,7 +134,7 @@ fi
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 CHECKPOINT_DIR="$PROJECT_ROOT/.claude/android-checkpoint"
 if [ -d "$CHECKPOINT_DIR" ]; then
-  COUNT=$(ls -1 "$CHECKPOINT_DIR"/checkpoint-*.json 2>/dev/null | wc -l)
+  COUNT=$(ls -1 "$CHECKPOINT_DIR"/checkpoint-*.json 2>/dev/null | wc -l | tr -d ' ')
   if [ "$COUNT" -gt 0 ]; then
     echo "CHECKPOINT_COUNT:$COUNT"
     echo "---CHECKPOINTS---"
@@ -185,7 +185,7 @@ fi
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 REVIEWS_DIR="$PROJECT_ROOT/docs/reviews"
 if [ -d "$REVIEWS_DIR" ]; then
-  COUNT=$(ls -1 "$REVIEWS_DIR"/*.md 2>/dev/null | wc -l)
+  COUNT=$(ls -1 "$REVIEWS_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ')
   if [ "$COUNT" -gt 0 ]; then
     echo "REVIEWS_COUNT:$COUNT"
     echo "---REVIEWS---"
@@ -206,7 +206,7 @@ fi
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 PLANS_DIR="$PROJECT_ROOT/docs/plans"
 if [ -d "$PLANS_DIR" ]; then
-  COUNT=$(ls -1 "$PLANS_DIR"/*.md 2>/dev/null | wc -l)
+  COUNT=$(ls -1 "$PLANS_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ')
   if [ "$COUNT" -gt 0 ]; then
     echo "PLANS_COUNT:$COUNT"
     echo "---PLANS---"
@@ -224,10 +224,11 @@ fi
 ### 0.7 Learnings 统计
 
 ```bash
-LEARN_BIN=".claude/skills/android-shared/bin/android-learnings-search"
+SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+LEARN_BIN="$SHARED_BIN/android-learnings-search"
 if [ -f "$LEARN_BIN" ]; then
   # 获取总数
-  TOTAL=$(bash "$LEARN_BIN" --limit 1000 2>/dev/null | head -1 | grep -oP '\d+' || echo "0")
+  TOTAL=$(bash "$LEARN_BIN" --limit 1000 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
 
   # 获取本周新增
   PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
@@ -290,7 +291,7 @@ if [ -n "$PROJECT_ROOT" ]; then
     KOTLIN_VER=$(grep -rE "kotlin.*version\s*[=:]|kotlinVersion" \
       "$PROJECT_ROOT/build.gradle" "$PROJECT_ROOT/build.gradle.kts" \
       "$PROJECT_ROOT/gradle/libs.versions.toml" 2>/dev/null | \
-      head -1 | grep -oP '[\d]+\.[\d]+\.[\d]+' | head -1)
+      head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     echo "KOTLIN:${KOTLIN_VER:-unknown}"
 
     # 检测 Compose
