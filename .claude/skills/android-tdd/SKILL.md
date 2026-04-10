@@ -1401,7 +1401,7 @@ android-qa (后续验证，读取 TDD 结果)
    **settings.gradle.kts:**
    ```kotlin
    dependencyResolutionManagement {
-       repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+       // repositoriesMode 保留项目原有配置，不要覆盖
        repositories {
            maven { url = uri("https://maven.aliyun.com/repository/google") }
            maven { url = uri("https://maven.aliyun.com/repository/central") }
@@ -1415,7 +1415,7 @@ android-qa (后续验证，读取 TDD 结果)
    **settings.gradle (Groovy):**
    ```groovy
    dependencyResolutionManagement {
-       repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+       // repositoriesMode 保留项目原有配置，不要覆盖
        repositories {
            maven { url 'https://maven.aliyun.com/repository/google' }
            maven { url 'https://maven.aliyun.com/repository/central' }
@@ -1429,3 +1429,5 @@ android-qa (后续验证，读取 TDD 结果)
 2. 阿里云镜像仓库放在 `google()` 和 `mavenCentral()` **之前**，确保优先从镜像拉取。
 3. 配置完成后重新运行失败的 Gradle 命令。
 4. **注意:** 仅在检测到网络拉取失败时才添加镜像配置，不要主动修改用户已有的仓库配置。
+   不要覆盖项目原有的 `repositoriesMode` 设置。
+5. **回滚:** 如果添加镜像后仍然失败，移除镜像配置恢复原状，提示用户检查网络代理或 VPN 设置。
