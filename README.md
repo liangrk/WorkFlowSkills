@@ -35,6 +35,13 @@
                   │  代码审查    │    │  功能测试   │    │  调试排查    │
                   └──────┬───────┘    └─────┬──────┘    └──────────────┘
                          │                  │
+              ┌──────────┼──────────┐       │
+              ▼          ▼          ▼       ▼
+       ┌──────────┐ ┌────────┐ ┌────────┐ ┌──────────────┐
+       │ coverage │ │benchmark│ │performance│ │  refactor  │
+       │ 覆盖率   │ │性能测试│ │ 性能分析  │ │  重构       │
+       └──────────┘ └────────┘ └────────┘ └──────────────┘
+                         │                  │
                          ▼                  ▼
                   ┌──────────────┐    ┌──────────────┐
                   │  反馈回路    │    │ doc-release  │
@@ -62,6 +69,9 @@
 | `android-worktree-runner` | 执行 | 基于 git worktree 隔离执行 plan 任务，每任务自动验证 | `/android-worktree-runner` |
 | `android-code-review` | 审查 | 代码质量审查 (架构、命名、生命周期、线程安全等) | `/android-code-review` |
 | `android-qa` | 验证 | 功能级 QA (静态分析、构建测试、设备测试) | `/android-qa` |
+| `android-coverage` | 覆盖率 | 独立覆盖率闭环: 基线测量→差距分析→自动补测试→验证达标 | `/android-coverage` |
+| `android-benchmark` | 性能测试 | Worktree 隔离性能分析: 冷启动/帧率/内存，默认报告模式，`--auto` 全自动闭环 | `/android-benchmark` |
+| `android-performance` | 性能分析 | ANR/内存泄漏/卡顿/耗电等运行时性能问题排查 | `/android-performance <问题描述>` |
 | `android-investigate` | 调试 | 系统化 bug 排查 (四层分析: 表现→数据→逻辑→平台) | `/android-investigate <问题描述>` |
 | `android-ship` | 交付 | 范围漂移检测、验证、提交、推送、创建 PR | `/android-ship` |
 | `android-learn` | 学习记录 | 跨 session 知识积累、搜索、清理 | `/android-learn [search|add|prune|stats]` |
@@ -104,6 +114,21 @@
 
 # 只做 QA
 /android-qa smoke
+
+# 覆盖率闭环 (全自动补测试)
+/android-coverage
+
+# 只出覆盖率报告，不动代码
+/android-coverage report
+
+# 性能 benchmark (报告+建议，不动代码)
+/android-benchmark
+
+# 性能 benchmark (全自动闭环: 优化+编译验收)
+/android-benchmark --auto
+
+# 只测冷启动
+/android-benchmark cold-start --target 300ms
 
 # 调试问题
 /android-investigate 崩溃时出现 NullPointerException
@@ -228,7 +253,63 @@
 
 产出: `docs/reviews/<branch>-qa-report.md`
 
-### 7. 调试排查 (android-investigate)
+### 7. 覆盖率 (android-coverage)
+
+独立的覆盖率闭环 skill，不依赖 TDD 或 QA 流程。
+
+```bash
+/android-coverage                  # 全自动闭环 (基线→分析→补测试→验证)
+/android-coverage report           # 只出报告，不动代码
+/android-coverage feature:login    # 指定模块运行
+```
+
+| Phase | 做什么 |
+|-------|--------|
+| Phase 0 | 环境检测: JaCoCo 配置、测试框架、模块结构 (按需自动引导配置) |
+| Phase 1 | 基线测量: 运行测试 + JaCoCo 报告，输出三维度仪表盘 (行/分支/方法) |
+| Phase 2 | 差距分析: 按优先级排序 (P0 关键路径→P1 工具类→P2 UI) |
+| Phase 3 | 自动补写测试: 最多 10 轮收敛循环，前 3 轮每轮 5 个类，逐步精细化 |
+| Phase 4 | 最终验证: 全量回归测试 + assembleDebug 编译验收 |
+| Phase 5 | 结果汇报: before→after 对比 + 新增测试清单 + 未达标项 |
+
+收敛策略: 连续 2 轮提升 < 0.5% 自动停止。所有关键路径 >= 90%、总体 >= 80% 时提前终止。
+
+**适用场景:** 夜间无人值守自动补测试、覆盖率审计、TDD 后补充覆盖率。
+
+产出: `docs/reviews/<branch>-coverage-report.md`
+
+### 8. 性能 Benchmark (android-benchmark)
+
+Worktree 隔离的性能分析 skill。默认报告模式不动代码，`--auto` 全自动闭环。
+
+```bash
+/android-benchmark                  # 报告+建议 (不动代码)
+/android-benchmark --auto           # 全自动闭环 (修复+编译验收)
+/android-benchmark cold-start       # 只测冷启动
+/android-benchmark jank             # 只测帧率/Jank
+/android-benchmark memory           # 只测内存
+/android-benchmark cold-start --target 300ms  # 自定义目标
+```
+
+| Phase | 做什么 |
+|-------|--------|
+| Phase 0 | Worktree 创建 + 交互选 commit + Gradle 环境预热 + 基础设施检测 |
+| Phase 1 | 基线测量: 三级降级 (Macrobenchmark→adb→静态分析)，每个维度 3 次取中位数 |
+| Phase 2 | 性能诊断: 定位瓶颈并按影响/难度排序 |
+| Phase 3 | 自动优化 (--auto 专属): 最多 8 轮，每轮 Top-1 瓶颈 + 回归检测 |
+| Phase 4 | 编译验收: Debug+Release 编译 + 单元测试 (报告模式跳过重复测量) |
+| Phase 5 | 结果汇报: 性能对比表 + 优化清单 + worktree 清理选项 |
+
+**默认目标:** 冷启动 <500ms / Jank <5% / 内存 ≤基线 110%
+
+**三级降级策略:**
+- **Tier 1 (Macrobenchmark):** 项目已配置 benchmark module + 设备已连接
+- **Tier 2 (adb):** 有设备，通过 `am start-activity -W`、`dumpsys gfxinfo`、`dumpsys meminfo` 测量
+- **Tier 3 (静态分析):** 无设备，基于代码审查定性评估
+
+产出: `docs/reviews/<branch>-benchmark-report.md`
+
+### 9. 调试排查 (android-investigate)
 
 ```
 /android-investigate 登录页面 crash 时出现 NullPointerException
@@ -242,7 +323,7 @@
 
 产出: `docs/reviews/<branch>-investigate-report.md`
 
-### 8. 检查点 (android-checkpoint)
+### 10. 检查点 (android-checkpoint)
 
 ```
 /android-checkpoint save    # 保存当前会话状态
@@ -253,7 +334,7 @@
 保存内容: 技术栈档案、架构推断、plan 信息、审查结论、决策记录、待处理事项。
 解决 `/clear` 或会话重启后上下文丢失的问题。
 
-### 9. 文档更新 (android-document-release)
+### 11. 文档更新 (android-document-release)
 
 ```
 /android-document-release
@@ -300,6 +381,8 @@ autoplan 在关键节点自动保存检查点:
 │   └── reviews/
 │       ├── <branch>-code-review.md           ← code-review 产出
 │       ├── <branch>-qa-report.md             ← qa 产出
+│       ├── <branch>-coverage-report.md       ← coverage 产出
+│       ├── <branch>-benchmark-report.md      ← benchmark 产出
 │       ├── <branch>-investigate-report.md     ← investigate 产出
 │       ├── <branch>-doc-update.md           ← document-release 产出
 │       └── <slug>-execution-issues.md        ← 反馈回路 (worktree→autoplan)
@@ -308,6 +391,8 @@ autoplan 在关键节点自动保存检查点:
 │   │   └── checkpoint-<timestamp>.json        ← 检查点数据
 │   ├── android-worktree-runner/
 │   │   └── tasks.json                      ← 执行状态 (唯一真相源)
+│   ├── worktrees/
+│   │   └── bench-<timestamp>/              ← android-benchmark 创建的 worktree
 │   └── skills/
 │       ├── android-init/SKILL.md
 │       ├── android-brainstorm/SKILL.md
@@ -318,6 +403,10 @@ autoplan 在关键节点自动保存检查点:
 │       ├── android-worktree-runner/SKILL.md
 │       ├── android-code-review/SKILL.md
 │       ├── android-qa/SKILL.md
+│       ├── android-coverage/SKILL.md
+│       ├── android-benchmark/SKILL.md
+│       ├── android-performance/SKILL.md
+│       ├── android-refactor/SKILL.md
 │       ├── android-investigate/SKILL.md
 │       ├── android-ship/SKILL.md
 │       ├── android-learn/SKILL.md
@@ -327,7 +416,7 @@ autoplan 在关键节点自动保存检查点:
 │           └── android-scan-project          ← init 深度扫描脚本
 ```
 
-### 10. 学习记录 (android-learn)
+### 12. 学习记录 (android-learn)
 
 ```
 /android-learn              # 查看所有学习记录
