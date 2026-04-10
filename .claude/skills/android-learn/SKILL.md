@@ -95,8 +95,10 @@ voice-triggers:
 | pattern | 可复用的编码模式 |
 | pitfall | 常见陷阱 / 反模式 |
 | preference | 项目/团队偏好 |
+| convention | 项目特有约定（命名、架构惯例等） |
 | architecture | 架构决策 |
 | tool | 工具使用技巧 |
+| technique | 调试/开发技巧 |
 | operational | 运维 / 构建相关 |
 
 ### source 枚举

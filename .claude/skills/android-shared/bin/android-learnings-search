@@ -3,6 +3,10 @@
 # Usage: android-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
 set -euo pipefail
 
+# Python3/python compatibility
+PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+if [ -z "$PYTHON" ]; then echo "ERROR: python3/python not found" >&2; exit 1; fi
+
 TYPE=""
 QUERY=""
 LIMIT=5
@@ -35,18 +39,30 @@ if [ -z "$FILES" ]; then
   exit 0
 fi
 
-# Process with python3
-python3 -c "
-import json, sys, os, time
+# Pass all parameters via environment variables to avoid shell injection
+export LEARN_TYPE="$TYPE"
+export LEARN_QUERY="$QUERY"
+export LEARN_LIMIT="$LIMIT"
+export LEARN_SLUG="$SLUG"
+export LEARN_FILES="$FILES"
+
+"$PYTHON" -c "
+import json, os, sys
 from datetime import datetime
 
 now = datetime.utcnow()
 results = []
 seen = {}
 
-for f in '''$FILES'''.split():
+files_str = os.environ.get('LEARN_FILES', '')
+slug = os.environ.get('LEARN_SLUG', '')
+filter_type = os.environ.get('LEARN_TYPE', '')
+filter_query = os.environ.get('LEARN_QUERY', '')
+limit = int(os.environ.get('LEARN_LIMIT', '5'))
+
+for filepath in files_str.split():
     try:
-        with open(f) as fh:
+        with open(filepath) as fh:
             for line in fh:
                 line = line.strip()
                 if not line: continue
@@ -56,31 +72,39 @@ for f in '''$FILES'''.split():
                         continue
                     # Confidence decay
                     conf = e.get('confidence', 5)
-                    if e.get('source') in ('observed', 'inferred'):
-                        days = (now - datetime.fromisoformat(e['ts'].replace('Z','+00:00'))).days
-                        conf = max(0, conf - days // 30)
+                    ts = e.get('ts', '')
+                    if ts and e.get('source') in ('observed', 'inferred'):
+                        try:
+                            days = (now - datetime.fromisoformat(ts.replace('Z','+00:00'))).days
+                            conf = max(0, conf - days // 30)
+                        except (ValueError, TypeError):
+                            pass  # bad ts format: no decay
                     e['_eff'] = conf
+                    # Save source file for cross-project check
+                    e['_src_file'] = filepath
                     # Dedup: latest wins per key+type
                     k = (e['key'], e['type'])
-                    if k not in seen or e['ts'] > seen[k][1]:
-                        seen[k] = (e, e['ts'])
-                except: pass
-    except: pass
+                    if k not in seen or ts > seen[k][1]:
+                        seen[k] = (e, ts)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+    except (IOError, OSError):
+        pass
 
 results = [v[0] for v in seen.values()]
 
 # Filter
-if '''$TYPE''':
-    results = [r for r in results if r['type'] == '''$TYPE''']
-if '''$QUERY''':
-    q = '''$QUERY'''.lower()
+if filter_type:
+    results = [r for r in results if r['type'] == filter_type]
+if filter_query:
+    q = filter_query.lower()
     results = [r for r in results if q in r.get('key','').lower() or q in r.get('insight','').lower() or any(q in f.lower() for f in r.get('files',[]))]
 
 # Sort
 results.sort(key=lambda r: (-r['_eff'], r.get('ts','')))
 
 # Limit
-results = results[:int('''$LIMIT''')]
+results = results[:limit]
 
 # Output
 if not results:
@@ -89,9 +113,11 @@ else:
     print(f'LEARNINGS: {len(results)} matches')
     for r in results:
         src = r.get('source','unknown')
-        ts = r['ts'][:10]
+        ts = r.get('ts','')[:10]
         files = r.get('files',[])
-        cross = ' [cross-project]' if os.path.basename(os.path.dirname(f)) != '''$SLUG''' else ''
+        src_file = r.get('_src_file', '')
+        is_cross = os.path.basename(os.path.dirname(src_file)) != slug if src_file else False
+        cross = ' [cross-project]' if is_cross else ''
         print(f'- [{r[\"key\"]}] (confidence: {r[\"_eff\"]}/10, {src}, {ts}){cross}')
         print(f'  {r[\"insight\"]}')
         if files:

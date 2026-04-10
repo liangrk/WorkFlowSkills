@@ -306,7 +306,7 @@ autoplan 在关键节点自动保存检查点:
 │       └── android-shared/bin/
 ```
 
-### 11. 学习记录 (android-learn)
+### 10. 学习记录 (android-learn)
 
 ```
 /android-learn              # 查看所有学习记录
