@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+# android-scan-project — Deep Android project scanner producing a persistent profile
+# Outputs structured JSON (default) or human-readable text format.
+# Works on Windows git bash AND Linux. Uses python3/python for JSON output.
+set -euo pipefail
+
+FORCE_SCAN="false"
+case "${1:-}" in
+  --force)  FORCE_SCAN="true"; shift ;;
+  --format) FORMAT="${2:-json}"; shift 2 ;;
+  json)     FORMAT="json"; shift ;;
+  text)     FORMAT="text"; shift ;;
+  *)        FORMAT="json" ;;
+esac
+
+# ── Helpers ────────────────────────────────────────────────────────────
+find_project_root() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$root" ]; then
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+      if [ -f "$dir/build.gradle" ] || [ -f "$dir/build.gradle.kts" ] || \
+         [ -f "$dir/settings.gradle" ] || [ -f "$dir/settings.gradle.kts" ]; then
+        root="$dir"; break
+      fi
+      dir=$(dirname "$dir")
+    done
+  fi
+  echo "$root"
+}
+
+grep_any() {
+  local pattern="$1"; shift
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    grep -qE "$pattern" "$f" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# JSON array builder: list_to_json "item1" "item2" -> ["item1","item2"]
+list_to_json() {
+  [ $# -eq 0 ] && echo "[]" && return
+  local json="["
+  for item in "$@"; do
+    [ -n "$item" ] && json="$json\"$item\","
+  done
+  json="${json%,}]"
+  echo "$json"
+}
+
+# File list to JSON objects: files_to_json "$PROJECT_ROOT" file1 file2
+files_to_json() {
+  local root="$1"; shift
+  [ $# -eq 0 ] && echo "[]" && return
+  local json="["
+  for f in "$@"; do
+    [ -z "$f" ] && continue
+    local name=$(basename "$f" .kt)
+    local rel=$(echo "$f" | sed "s|$root/||")
+    json="$json{\"name\":\"$name\",\"file\":\"$rel\"},"
+  done
+  json="${json%,}]"
+  echo "$json"
+}
+
+# ── Project root + Android check ──────────────────────────────────────
+PROJECT_ROOT=$(find_project_root)
+if [ -z "$PROJECT_ROOT" ]; then
+  echo "ERROR: Not a git repository and no Android project root found" >&2; exit 1
+fi
+if [ ! -f "$PROJECT_ROOT/build.gradle" ] && [ ! -f "$PROJECT_ROOT/build.gradle.kts" ] && \
+   [ ! -f "$PROJECT_ROOT/settings.gradle" ] && [ ! -f "$PROJECT_ROOT/settings.gradle.kts" ]; then
+  echo "ERROR: Not an Android project (missing build.gradle / settings.gradle)" >&2; exit 1
+fi
+
+PROFILE_PATH="$PROJECT_ROOT/.android-project-profile.json"
+if [ -f "$PROFILE_PATH" ] && [ "$FORCE_SCAN" != "true" ]; then
+  echo "Profile already exists: $PROFILE_PATH"; echo "Use --force to re-scan."; exit 0
+fi
+
+# ── Collect build files ────────────────────────────────────────────────
+BUILD_FILES=""
+for f in "$PROJECT_ROOT/app/build.gradle.kts" "$PROJECT_ROOT/app/build.gradle" \
+         "$PROJECT_ROOT/build.gradle.kts" "$PROJECT_ROOT/build.gradle"; do
+  [ -f "$f" ] && BUILD_FILES="$BUILD_FILES $f"
+done
+BUILD_FILES=$(echo "$BUILD_FILES" | xargs 2>/dev/null || true)
+
+ALL_BUILD_FILES=""
+while IFS= read -r mod; do
+  for ext in ".kts" ""; do
+    [ -f "$PROJECT_ROOT/$mod/build.gradle$ext" ] && ALL_BUILD_FILES="$ALL_BUILD_FILES $PROJECT_ROOT/$mod/build.gradle$ext"
+  done
+done < <(grep -oP 'include\s*\(?["\x27:]?\K[\w:-]+' "$PROJECT_ROOT/settings.gradle" "$PROJECT_ROOT/settings.gradle.kts" 2>/dev/null | sed 's/^://' || true)
+
+SETTINGS_FILE=""
+for f in "$PROJECT_ROOT/settings.gradle.kts" "$PROJECT_ROOT/settings.gradle"; do
+  [ -f "$f" ] && SETTINGS_FILE="$f" && break
+done
+VCAT="$PROJECT_ROOT/gradle/libs.versions.toml"
+[ ! -f "$VCAT" ] && VCAT=""
+
+ALL_GRADLE="$BUILD_FILES $ALL_BUILD_FILES"
+
+# ── Meta detection ─────────────────────────────────────────────────────
+export PROJECT_NAME=$(basename "$PROJECT_ROOT")
+export PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
+
+export ROOT_PACKAGE=""
+MANIFEST="$PROJECT_ROOT/app/src/main/AndroidManifest.xml"
+[ -f "$MANIFEST" ] && ROOT_PACKAGE=$(grep -oP 'package\s*=\s*"\K[^"]+' "$MANIFEST" 2>/dev/null | head -1 || true)
+if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'namespace\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+fi
+if [ -z "$ROOT_PACKAGE" ] && [ -n "$BUILD_FILES" ]; then
+  ROOT_PACKAGE=$(echo "$BUILD_FILES" | xargs grep -oP 'applicationId\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+fi
+if [ -z "$ROOT_PACKAGE" ] && [ -d "$PROJECT_ROOT/app/src/main/kotlin" ]; then
+  PKG_DIR=$(find "$PROJECT_ROOT/app/src/main/kotlin" -type d -mindepth 1 -maxdepth 4 2>/dev/null | head -1 || true)
+  [ -n "$PKG_DIR" ] && ROOT_PACKAGE=$(echo "$PKG_DIR" | sed "s|$PROJECT_ROOT/app/src/main/kotlin/||" | tr '/' '.')
+fi
+
+export BUILD_SYSTEM="unknown"
+[ -f "$PROJECT_ROOT/build.gradle.kts" ] || [ -f "$PROJECT_ROOT/app/build.gradle.kts" ] && BUILD_SYSTEM="gradle-kts"
+[ "$BUILD_SYSTEM" = "unknown" ] && { [ -f "$PROJECT_ROOT/build.gradle" ] || [ -f "$PROJECT_ROOT/app/build.gradle" ]; } && BUILD_SYSTEM="gradle-groovy"
+
+MODULES_RAW=""
+[ -n "$SETTINGS_FILE" ] && MODULES_RAW=$(grep -oP 'include\s*\(?["\x27:]?\K[\w:-]+' "$SETTINGS_FILE" 2>/dev/null | sed 's/^://' || true)
+
+export MIN_SDK="" TARGET_SDK="" COMPILE_SDK=""
+if [ -n "$BUILD_FILES" ]; then
+  MIN_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'minSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+  TARGET_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'targetSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+  COMPILE_SDK=$(echo "$BUILD_FILES" | xargs grep -oP 'compileSdk\s*[=:]\s*\K\d+' 2>/dev/null | head -1 || true)
+fi
+
+export KOTLIN_VERSION="" AGP_VERSION=""
+if [ -n "$BUILD_FILES" ]; then
+  KOTLIN_VERSION=$(echo "$BUILD_FILES" | xargs grep -oP 'kotlin\("android"\)\s*version\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+  [ -z "$KOTLIN_VERSION" ] && KOTLIN_VERSION=$(echo "$BUILD_FILES" | xargs grep -oP 'kotlinAndroid\s*version\s*=\s*"\K[^"]+' 2>/dev/null | head -1 || true)
+  AGP_VERSION=$(echo "$BUILD_FILES" | xargs grep -oP 'agp[^\d]*?(\d+\.\d+\.\d+)' 2>/dev/null | head -1 || true)
+fi
+[ -z "$KOTLIN_VERSION" ] && [ -n "$VCAT" ] && KOTLIN_VERSION=$(grep 'kotlin\s*=' "$VCAT" 2>/dev/null | grep -oP '"[\d.]+"' | tr -d '"' | head -1 || true)
+[ -z "$AGP_VERSION" ] && [ -n "$VCAT" ] && AGP_VERSION=$(grep 'agp\s*=' "$VCAT" 2>/dev/null | grep -oP '"[\d.]+"' | tr -d '"' | head -1 || true)
+
+# ── Dependencies: UI ───────────────────────────────────────────────────
+export COMPOSE_ENABLED="false" COMPOSE_BOM="" COMPOSE_COMPILER="" MATERIAL3="false"
+export MATERIAL_COMPONENTS="false" CUSTOM_THEME="false" NAVIGATION_TYPE=""
+export IMAGE_LOADING="" ANIMATION_LIB=""
+
+if [ -n "$ALL_GRADLE" ]; then
+  grep_any "androidx.compose" $ALL_GRADLE && COMPOSE_ENABLED="true"
+  grep_any "material3" $ALL_GRADLE && MATERIAL3="true"
+  grep_any "com.google.android.material:material\"" $ALL_GRADLE && MATERIAL_COMPONENTS="true"
+  grep_any "io.coil-kt" $ALL_GRADLE && IMAGE_LOADING="coil"
+  grep_any "glide" $ALL_GRADLE && { [ -z "$IMAGE_LOADING" ] && IMAGE_LOADING="glide"; }
+  grep_any "lottie" $ALL_GRADLE && ANIMATION_LIB="lottie"
+  grep_any "androidx.navigation" $ALL_GRADLE && NAVIGATION_TYPE="compose-navigation"
+fi
+[ -n "$VCAT" ] && COMPOSE_BOM=$(grep 'compose-bom' "$VCAT" 2>/dev/null | grep -oP '"[\d.]+"' | tr -d '"' | head -1 || true)
+[ -n "$VCAT" ] && COMPOSE_COMPILER=$(grep 'compose-compiler' "$VCAT" 2>/dev/null | grep -oP '"[\d.]+"' | tr -d '"' | head -1 || true)
+find "$PROJECT_ROOT" -name "Theme.kt" -not -path "*/build/*" 2>/dev/null | grep -q "." && CUSTOM_THEME="true"
+
+# ── Dependencies: network ─────────────────────────────────────────────
+export HTTP_CLIENT="" API_CLIENT="" SERIALIZER="" GRAPHQL="" WEBSOCKET=""
+if [ -n "$ALL_GRADLE" ]; then
+  grep_any "okhttp3" $ALL_GRADLE && HTTP_CLIENT="okhttp"
+  grep_any "retrofit2" $ALL_GRADLE && API_CLIENT="retrofit"
+  grep_any "kotlinx.serialization" $ALL_GRADLE && SERIALIZER="kotlinx-serialization"
+  grep_any "gson" $ALL_GRADLE && { [ -z "$SERIALIZER" ] && SERIALIZER="gson"; }
+  grep_any "moshi" $ALL_GRADLE && { [ -z "$SERIALIZER" ] && SERIALIZER="moshi"; }
+  grep_any "apollo" $ALL_GRADLE && GRAPHQL="apollo"
+fi
+
+# ── Dependencies: DI / async / database / storage / image / media / security / analytics ──
+export DI_FRAMEWORK="" DI_VERSION=""
+if [ -n "$ALL_GRADLE" ]; then
+  if grep_any "hilt" $ALL_GRADLE; then DI_FRAMEWORK="hilt"; DI_VERSION=$(echo $ALL_GRADLE | xargs grep -oP 'hilt[^\d]*?(\d+\.\d+\.\d+)' 2>/dev/null | head -1 || true)
+  elif grep_any "koin" $ALL_GRADLE; then DI_FRAMEWORK="koin"
+  elif grep_any "dagger" $ALL_GRADLE; then DI_FRAMEWORK="dagger"; fi
+  grep_any "coroutines" $ALL_GRADLE && COROUTINES="true"
+  grep_any "rxjava\|rxkotlin" $ALL_GRADLE && RXJAVA="true"
+  grep_any "coroutines-flow" $ALL_GRADLE && FLOW_EXTENSIONS="true"
+  if grep_any "androidx.room" $ALL_GRADLE; then ORM="room"; ORM_VERSION=$(echo $ALL_GRADLE | xargs grep -oP 'room[^\d]*?(\d+\.\d+\.\d+)' 2>/dev/null | head -1 || true)
+  elif grep_any "sqldelight" $ALL_GRADLE; then ORM="sqldelight"
+  elif grep_any "realm" $ALL_GRADLE; then ORM="realm"; fi
+  grep_any "sqlcipher" $ALL_GRADLE && ENCRYPTION="sqlcipher"
+  grep_any "datastore" $ALL_GRADLE && DATASTORE="true"
+  grep_any "security-crypto" $ALL_GRADLE && ENCRYPTED_PREFERENCES="true"
+  grep_any "androidx.camera" $ALL_GRADLE && CAMERA_X="camerax"
+  grep_any "exoplayer" $ALL_GRADLE && EXOPLAYER="true"
+  grep_any "media3" $ALL_GRADLE && MEDIA3="media3"
+  grep_any "biometric" $ALL_GRADLE && BIOMETRIC="biometric"
+  grep_any "tink" $ALL_GRADLE && SECURITY_ENCRYPTION="tink"
+  grep_any "certificate.*pinner\|CertificatePinner" $ALL_GRADLE && CERTIFICATE_PINNING="true"
+  grep_any "firebase-analytics\|firebase-core" $ALL_GRADLE && FIREBASE_ANALYTICS="true"
+  grep_any "crashlytics" $ALL_GRADLE && CRASHLYTICS="true"
+  grep_any "\bksp\b" $ALL_GRADLE && KSP="true"
+  grep_any "hilt.*plugin\|hilt-gradle" $ALL_GRADLE && HILT_PLUGIN="true"
+  grep_any "timber" $ALL_GRADLE && TIMBER="true"
+  grep_any "leakcanary" $ALL_GRADLE && LEAKCANARY="true"
+  grep_any "chucker" $ALL_GRADLE && CHUCKER="true"
+  grep_any "desugar" $ALL_GRADLE && DESUGAR="true"
+fi
+MIGRATION_COUNT=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -l "Migration" 2>/dev/null | wc -l | tr -d ' ')
+
+# ── Dependencies: testing ─────────────────────────────────────────────
+export TEST_UNIT="[]" TEST_UI="[]" COVERAGE_TOOL="" COVERAGE_MIN=""
+if [ -n "$ALL_GRADLE" ]; then
+  TU=()
+  grep_any "junit" $ALL_GRADLE && TU+=("junit")
+  grep_any "mockk" $ALL_GRADLE && TU+=("mockk")
+  grep_any "mockito" $ALL_GRADLE && TU+=("mockito")
+  grep_any "truth" $ALL_GRADLE && TU+=("truth")
+  grep_any "assertj" $ALL_GRADLE && TU+=("assertj")
+  grep_any "turbine" $ALL_GRADLE && TU+=("turbine")
+  grep_any "robolectric" $ALL_GRADLE && TU+=("robolectric")
+  [ ${#TU[@]} -gt 0 ] && TEST_UNIT=$(list_to_json "${TU[@]}")
+  TUI=()
+  grep_any "compose.*ui.*test\|ui-test-junit4" $ALL_GRADLE && TUI+=("compose-ui-test")
+  grep_any "espresso" $ALL_GRADLE && TUI+=("espresso")
+  [ ${#TUI[@]} -gt 0 ] && TEST_UI=$(list_to_json "${TUI[@]}")
+  grep_any "jacoco" $ALL_GRADLE && COVERAGE_TOOL="jacoco"
+fi
+
+# ── Architecture detection ────────────────────────────────────────────
+export ARCH_PATTERN="unknown" ARCH_LAYERS="[]" PRESENTATION_PATTERN=""
+export STATE_MANAGEMENT="" MODULE_TYPE="single-module" DI_SCOPE=""
+
+if [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  HP=$(find "$PROJECT_ROOT" -type d -name "presentation" -not -path "*/build/*" 2>/dev/null | head -1)
+  HD=$(find "$PROJECT_ROOT" -type d -name "domain" -not -path "*/build/*" 2>/dev/null | head -1)
+  HDA=$(find "$PROJECT_ROOT" -type d -name "data" -not -path "*/build/*" 2>/dev/null | head -1)
+  HU=$(find "$PROJECT_ROOT" -type d -name "ui" -not -path "*/build/*" -not -path "*/res/*" 2>/dev/null | head -1)
+  HV=$(find "$PROJECT_ROOT" -type d -name "viewmodel" -not -path "*/build/*" 2>/dev/null | head -1)
+
+  [ -n "$HP" ] && [ -n "$HD" ] && [ -n "$HDA" ] && { ARCH_PATTERN="clean-architecture"; ARCH_LAYERS='["presentation","domain","data"]'; }
+  [ "$ARCH_PATTERN" = "unknown" ] && [ -n "$HD" ] && [ -n "$HDA" ] && { ARCH_PATTERN="clean-architecture"; ARCH_LAYERS='["domain","data"]'; }
+  [ "$ARCH_PATTERN" = "unknown" ] && [ -n "$HU" ] && [ -n "$HV" ] && { ARCH_PATTERN="mvvm"; ARCH_LAYERS='["ui","viewmodel"]'; }
+
+  find "$PROJECT_ROOT/app/src/main" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "ViewModel" 2>/dev/null | grep -q "." && PRESENTATION_PATTERN="mvvm"
+  [ -z "$PRESENTATION_PATTERN" ] && find "$PROJECT_ROOT/app/src/main" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "Presenter" 2>/dev/null | grep -q "." && PRESENTATION_PATTERN="mvp"
+
+  find "$PROJECT_ROOT/app/src/main" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "StateFlow" 2>/dev/null | grep -q "." && STATE_MANAGEMENT="stateflow"
+  [ -z "$STATE_MANAGEMENT" ] && find "$PROJECT_ROOT/app/src/main" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "LiveData" 2>/dev/null | grep -q "." && STATE_MANAGEMENT="livedata"
+fi
+
+MC=0; [ -n "$MODULES_RAW" ] && MC=$(echo "$MODULES_RAW" | wc -l | tr -d ' ')
+if [ "$MC" -gt 1 ]; then
+  echo "$MODULES_RAW" | grep -q "feature" && MODULE_TYPE="multi-module-feature-based" || MODULE_TYPE="multi-module"
+fi
+[ "$DI_FRAMEWORK" = "hilt" ] && DI_SCOPE="hilt-scopes"
+[ "$DI_FRAMEWORK" = "koin" ] && DI_SCOPE="koin-scopes"
+[ -n "$NAVIGATION_TYPE" ] && [ "$COMPOSE_ENABLED" = "true" ] && NAVIGATION_TYPE="compose-navigation"
+[ -n "$NAVIGATION_TYPE" ] && [ "$COMPOSE_ENABLED" != "true" ] && NAVIGATION_TYPE="navigation-component"
+
+# ── Components detection ──────────────────────────────────────────────
+export CUSTOM_COMPOSABLES="[]" CUSTOM_VIEWS="[]" BASE_CLASSES="[]" REPOSITORIES="[]"
+if [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  CF=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l "@Composable" 2>/dev/null | head -20 || true)
+  VF=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l ": View(\|: ViewGroup(" 2>/dev/null | head -10 || true)
+  BF=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l "abstract class.*ViewModel\|abstract class.*Repository\|abstract class.*UseCase" 2>/dev/null | head -10 || true)
+  RF=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l "interface.*Repository" 2>/dev/null | head -10 || true)
+  [ -n "$CF" ] && CUSTOM_COMPOSABLES=$(files_to_json "$PROJECT_ROOT" $CF)
+  [ -n "$VF" ] && CUSTOM_VIEWS=$(files_to_json "$PROJECT_ROOT" $VF)
+  [ -n "$BF" ] && BASE_CLASSES=$(files_to_json "$PROJECT_ROOT" $BF)
+  [ -n "$RF" ] && REPOSITORIES=$(files_to_json "$PROJECT_ROOT" $RF)
+fi
+
+# ── Conventions detection ─────────────────────────────────────────────
+export VM_SUFFIX="ViewModel" REPO_IMPL_SUFFIX="RepositoryImpl" USE_CASE_PREFIX=""
+export COMPOSABLE_SUFFIX="Screen" PACKAGE_BY_FEATURE="false" TEST_MIRROR_PACKAGE="false"
+export SEALED_RESULT="false" USE_CASES="false" REPO_INTERFACE="false" MAPPER_PATTERN="false"
+
+if [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  find "$PROJECT_ROOT" -name "*Fragment.kt" -not -path "*/build/*" 2>/dev/null | grep -q "." && COMPOSABLE_SUFFIX="Fragment"
+  find "$PROJECT_ROOT/app/src/main" -name "*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "sealed.*Result\|sealed.*UiState" 2>/dev/null | grep -q "." && SEALED_RESULT="true"
+  find "$PROJECT_ROOT" -name "*UseCase*.kt" -not -path "*/build/*" 2>/dev/null | grep -q "." && USE_CASES="true"
+  find "$PROJECT_ROOT" -name "*Repository*.kt" -not -path "*/build/*" 2>/dev/null | xargs grep -ql "interface.*Repository" 2>/dev/null | grep -q "." && REPO_INTERFACE="true"
+  find "$PROJECT_ROOT" -name "*Mapper*.kt" -not -path "*/build/*" 2>/dev/null | grep -q "." && MAPPER_PATTERN="true"
+  [ -d "$PROJECT_ROOT/app/src/test" ] && find "$PROJECT_ROOT/app/src/test" -type d -mindepth 3 2>/dev/null | grep -q "." && TEST_MIRROR_PACKAGE="true"
+
+  if [ -n "$ROOT_PACKAGE" ]; then
+    PKG_DIR=$(echo "$ROOT_PACKAGE" | tr '.' '/')
+    SRC_DIR=""
+    [ -d "$PROJECT_ROOT/app/src/main/kotlin" ] && SRC_DIR="$PROJECT_ROOT/app/src/main/kotlin/$PKG_DIR"
+    [ -z "$SRC_DIR" ] && [ -d "$PROJECT_ROOT/app/src/main/java" ] && SRC_DIR="$PROJECT_ROOT/app/src/main/java/$PKG_DIR"
+    if [ -n "$SRC_DIR" ] && [ -d "$SRC_DIR" ]; then
+      FC=$(ls -d "$SRC_DIR"/*/ 2>/dev/null | grep -v "/ui$\|/data$\|/domain$\|/presentation$\|/model$\|/util$\|/common$\|/di$\|/network$\|/repository$" | wc -l | tr -d ' ')
+      [ "$FC" -gt 0 ] && PACKAGE_BY_FEATURE="true"
+    fi
+  fi
+fi
+
+# ── Resources detection ───────────────────────────────────────────────
+export THEMES="[]" ICON_SET="" FONTS="[]" DRAWABLES_COUNT="0"
+export VECTOR_DRAWABLES_COUNT="0" LOCALES="[]"
+
+if [ -d "$PROJECT_ROOT/app/src/main" ]; then
+  TF=()
+  for t in "Theme.kt" "Color.kt" "Type.kt" "Shape.kt"; do
+    find "$PROJECT_ROOT" -name "$t" -not -path "*/build/*" 2>/dev/null | grep -q "." && TF+=("$t")
+  done
+  [ ${#TF[@]} -gt 0 ] && THEMES=$(list_to_json "${TF[@]}")
+
+  grep_any "material-icons-extended" $ALL_GRADLE 2>/dev/null && ICON_SET="material-icons-extended"
+  [ -z "$ICON_SET" ] && grep_any "material-icons" $ALL_GRADLE 2>/dev/null && ICON_SET="material-icons"
+
+  FONT_NAMES=()
+  for f in $(find "$PROJECT_ROOT" \( -name "*.ttf" -o -name "*.otf" \) 2>/dev/null | head -5); do
+    [ -n "$f" ] && FONT_NAMES+=("$(basename "$f" | sed 's/\.[^.]*$//')")
+  done
+  [ ${#FONT_NAMES[@]} -gt 0 ] && FONTS=$(list_to_json "${FONT_NAMES[@]}")
+
+  DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -type f -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
+  VECTOR_DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -name "*.xml" -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
+
+  LOCALE_NAMES=()
+  for l in $(ls "$PROJECT_ROOT/app/src/main/res/" 2>/dev/null | grep "^values-" | sed 's/values-//' | head -10); do
+    [ -n "$l" ] && LOCALE_NAMES+=("$l")
+  done
+  [ ${#LOCALE_NAMES[@]} -gt 0 ] && LOCALES=$(list_to_json "${LOCALE_NAMES[@]}")
+fi
+
+# ── Build config detection ────────────────────────────────────────────
+export FLAVORS="[]" BUILD_TYPES="[]" MINIFICATION="false" SHRINK_RESOURCES="false"
+export PROGUARD_FILES="[]" VERSION_CATALOG_USED="false"
+
+[ -f "$VCAT" ] && VERSION_CATALOG_USED="true"
+if [ -n "$BUILD_FILES" ]; then
+  FL=()
+  for f in $(echo "$BUILD_FILES" | xargs grep -E "productFlavors" -A 20 2>/dev/null | grep -oP '^\s*\w+\s*\{' | sed 's/\s*\{//' | head -10); do
+    [ -n "$f" ] && FL+=("$f")
+  done
+  [ ${#FL[@]} -gt 0 ] && FLAVORS=$(list_to_json "${FL[@]}")
+
+  grep_any "debug\s*\{" $BUILD_FILES && BUILD_TYPES='["debug","release"]'
+  grep_any "minifyEnabled\s*true\|isMinifyEnabled\s*=\s*true" $BUILD_FILES && MINIFICATION="true"
+  grep_any "shrinkResources\s*true\|isShrinkResources\s*=\s*true" $BUILD_FILES && SHRINK_RESOURCES="true"
+
+  PG=()
+  for f in $(find "$PROJECT_ROOT/app" -name "proguard*.pro" 2>/dev/null | head -5); do
+    [ -n "$f" ] && PG+=("$(basename "$f")")
+  done
+  [ ${#PG[@]} -gt 0 ] && PROGUARD_FILES=$(list_to_json "${PG[@]}")
+fi
+
+# ── Modules JSON ──────────────────────────────────────────────────────
+export MODULES_JSON="[]"
+if [ -n "$MODULES_RAW" ]; then
+  MODS=()
+  while IFS= read -r m; do [ -n "$m" ] && MODS+=("$m"); done <<< "$MODULES_RAW"
+  [ ${#MODS[@]} -gt 0 ] && MODULES_JSON=$(list_to_json "${MODS[@]}")
+fi
+
+# ── Timestamp ──────────────────────────────────────────────────────────
+export TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+
+# ── Output ─────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$FORMAT" = "text" ]; then
+  echo "=== Android Project Profile ==="
+  echo "Project: $PROJECT_NAME ($ROOT_PACKAGE)"
+  echo "Modules: $(echo "$MODULES_JSON" | tr -d '[]"' | tr ',' ', ')"
+  echo "Build:   $BUILD_SYSTEM"
+  echo "Kotlin:  ${KOTLIN_VERSION:-unknown} | AGP: ${AGP_VERSION:-unknown}"
+  echo "SDK:     min=$MIN_SDK target=$TARGET_SDK compile=$COMPILE_SDK"
+  echo "UI:       Compose=$COMPOSE_ENABLED Material3=$MATERIAL3"
+  echo "DI:       $DI_FRAMEWORK"
+  echo "Network:  $API_CLIENT + $HTTP_CLIENT + $SERIALIZER"
+  echo "Database: $ORM | DataStore=$DATASTORE"
+  echo "Testing:  $TEST_UNIT | $TEST_UI"
+  echo "Architecture: $ARCH_PATTERN ($PRESENTATION_PATTERN + $STATE_MANAGEMENT)"
+  echo "Generated: $TIMESTAMP"
+else
+  PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+  if [ -n "$PY" ]; then
+    "$PY" "$SCRIPT_DIR/android-scan-project.py"
+  else
+    echo "ERROR: python3/python is required for JSON output" >&2; exit 1
+  fi
+fi

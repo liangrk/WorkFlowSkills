@@ -125,6 +125,18 @@ slug 用于产出文件命名。按以下优先级确定:
 
 ### 步骤 5: 检测项目环境
 
+**项目档案:** 优先从 .android-project-profile.json 读取项目信息:
+```bash
+if [ -f ".android-project-profile.json" ]; then
+  cat .android-project-profile.json
+else
+  echo "[warn] 未找到项目档案，建议运行 /android-init"
+fi
+```
+
+如果项目档案存在，直接从 `dependencies`、`components`、`conventions`、`resources` 部分提取 UI 档案信息，
+跳过以下扫描命令 (大幅加速)。仅在档案不存在或关键信息缺失时回退到扫描。
+
 扫描项目，确定 UI 框架、组件库、命名规范。
 
 ```bash

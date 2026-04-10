@@ -6,6 +6,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 
 | User Intent | Skill | Trigger |
 |------------|-------|---------|
+| 初始化、扫描项目、项目档案 | `android-init` | "初始化"、"扫描项目"、"项目档案" |
 | 全局状态、仪表盘、查看进展 | `android-status` | "状态"、"全局状态"、"仪表盘"、"dashboard"、"当前状态" |
 | 需求分析、头脑风暴、方案探索 | `android-brainstorm` | "头脑风暴"、"分析需求"、"探索方案" |
 | 计划拆分、任务规划、review plan | `android-autoplan` | "拆分任务"、"做计划"、"autoplan"、"review plan" |
@@ -25,6 +26,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 
 ## Conventions
 
+- **新项目首次使用前，建议先运行 `/android-init` 生成项目档案。** 下游 skill (design-review, autoplan, code-review, tdd 等) 会自动读取档案以加速环境检测。
 - All skill outputs are in Chinese unless the user explicitly uses English
 - Plan files go to `docs/plans/`
 - Review/QA reports go to `docs/reviews/`

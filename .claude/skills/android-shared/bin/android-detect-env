@@ -36,6 +36,80 @@ if [ -z "$PROJECT_ROOT" ]; then
   exit 1
 fi
 
+# ── Fast path: read from project profile if available ─────────────────
+PROFILE_PATH="$PROJECT_ROOT/.android-project-profile.json"
+if [ -f "$PROFILE_PATH" ]; then
+  if [ "$FORMAT" = "text" ]; then
+    # Extract key fields for text output
+    PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+    if [ -n "$PY" ]; then
+      "$PY" -c "
+import json
+with open('$PROFILE_PATH') as f:
+    p = json.load(f)
+m = p.get('meta', {})
+d = p.get('dependencies', {})
+a = p.get('architecture', {})
+t = d.get('testing', {})
+mods = m.get('modules', [])
+tu = t.get('unit', [])
+print(f\"project_type=android\")
+print(f\"build_system={m.get('build_system', 'unknown')}\")
+print(f\"language=kotlin\")
+print(f\"kotlin_version={m.get('kotlin_version') or ''}\")
+print(f\"compose_enabled={'true' if d.get('ui',{}).get('compose_enabled') else 'false'}\")
+print(f\"di_framework={d.get('di',{}).get('framework') or ''}\")
+print(f\"async_framework={'coroutines' if d.get('async',{}).get('coroutines') else ''}\")
+modules_str = ','.join(mods) if mods else ''
+print(f\"modules={modules_str}\")
+print(f\"min_sdk={m.get('min_sdk') or ''}\")
+print(f\"target_sdk={m.get('target_sdk') or ''}\")
+print(f\"compile_sdk={m.get('compile_sdk') or ''}\")
+tu_str = ','.join(tu) if tu else ''
+print(f\"test_frameworks={tu_str}\")
+print(f\"has_jacoco={'true' if t.get('coverage') == 'jacoco' else 'false'}\")
+" 2>/dev/null && exit 0
+    fi
+  else
+    # JSON output: extract relevant subset
+    PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+    if [ -n "$PY" ]; then
+      "$PY" -c "
+import json
+with open('$PROFILE_PATH') as f:
+    p = json.load(f)
+m = p.get('meta', {})
+d = p.get('dependencies', {})
+a = p.get('architecture', {})
+t = d.get('testing', {})
+mods = m.get('modules', [])
+tu = t.get('unit', [])
+data = {
+    'project_type': 'android',
+    'build_system': m.get('build_system', 'unknown'),
+    'language': 'kotlin',
+    'kotlin_version': m.get('kotlin_version'),
+    'compose_enabled': d.get('ui', {}).get('compose_enabled', False),
+    'di_framework': d.get('di', {}).get('framework'),
+    'async_framework': 'coroutines' if d.get('async', {}).get('coroutines') else None,
+    'modules': mods,
+    'min_sdk': m.get('min_sdk'),
+    'target_sdk': m.get('target_sdk'),
+    'compile_sdk': m.get('compile_sdk'),
+    'test_frameworks': tu,
+    'has_jacoco': t.get('coverage') == 'jacoco',
+    'git_branch': '$(git -C \"$PROJECT_ROOT\" rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"\")',
+    'git_remote': '$(git -C \"$PROJECT_ROOT\" remote get-url origin 2>/dev/null | sed \"s|^https://||;s|^git@||;s|\\.git\$||;s|^ssh://git@||\" 2>/dev/null || echo \"\")',
+    'project_slug': m.get('slug', ''),
+    'root_package': m.get('package'),
+}
+print(json.dumps(data, indent=2, ensure_ascii=False))
+" 2>/dev/null && exit 0
+    fi
+  fi
+fi
+# Profile not found or python unavailable — fall through to full detection
+
 # ── Helper: find build files (root + app module) ───────────────────────
 BUILD_FILES=""
 for f in \

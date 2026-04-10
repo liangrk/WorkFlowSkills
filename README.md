@@ -6,6 +6,12 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
+│                  android-init (项目档案，一次性)                       │
+│          深度扫描 → .android-project-profile.json                     │
+└──────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────────────────┐
 │                      android-status (全局监控)                        │
 │          git / worktree / checkpoint / PR / build 一览                │
 └──────────────────────────────────────────────────────────────────────┘
@@ -46,6 +52,7 @@
 
 | Skill | 阶段 | 说明 | 调用方式 |
 |-------|------|------|---------|
+| `android-init` | 初始化 | 一次性深度扫描，生成持久化项目档案 (.android-project-profile.json) | `/android-init` |
 | `android-status` | 监控 | 全局状态仪表盘: git/worktree/checkpoint/PR/build 一览 | `/android-status` |
 | `android-brainstorm` | 需求定义 | 头脑风暴、需求分析、方案探索 | `/android-brainstorm` |
 | `android-checkpoint` | 持续化 | 保存/恢复 autoplan 会话状态，防止 /clear 丢失上下文 | `/android-checkpoint save` / `restore` |
@@ -282,6 +289,7 @@ autoplan 在关键节点自动保存检查点:
 
 ```
 项目根目录/
+├── .android-project-profile.json              ← android-init 产出 (gitignored)
 ├── docs/
 │   ├── plans/
 │   │   ├── <slug>.md                        ← autoplan 产出
@@ -301,6 +309,7 @@ autoplan 在关键节点自动保存检查点:
 │   ├── android-worktree-runner/
 │   │   └── tasks.json                      ← 执行状态 (唯一真相源)
 │   └── skills/
+│       ├── android-init/SKILL.md
 │       ├── android-brainstorm/SKILL.md
 │       ├── android-status/SKILL.md
 │       ├── android-autoplan/SKILL.md
@@ -315,6 +324,7 @@ autoplan 在关键节点自动保存检查点:
 │       ├── android-checkpoint/SKILL.md
 │       ├── android-document-release/SKILL.md
 │       └── android-shared/bin/
+│           └── android-scan-project          ← init 深度扫描脚本
 ```
 
 ### 10. 学习记录 (android-learn)
