@@ -458,3 +458,37 @@ autoplan 在关键节点自动保存检查点:
 ```
 
 Figma API Token 获取: Figma → Settings → Security → Personal Access Tokens → Generate new token
+
+## 安装与更新
+
+### 全局安装（推荐）
+
+在任意项目的 Claude Code 中粘贴以下 prompt：
+
+```
+将 https://github.com/liangrk/WorkFlowSkills 仓库中的 Android 开发 skills 安装到我的全局 Claude Code 环境（~/.claude/skills/）。步骤：1) 克隆仓库到临时目录 2) 将 .claude/skills/ 下所有 android-* 目录和 android-shared 目录复制到 ~/.claude/skills/ 3) 清理临时目录 4) 列出已安装的 skills 确认成功。
+```
+
+或使用一行命令：
+
+```bash
+tmpdir=$(mktemp -d) && git clone --depth 1 https://github.com/liangrk/WorkFlowSkills.git "$tmpdir/WorkFlowSkills" && mkdir -p ~/.claude/skills && cp -r "$tmpdir/WorkFlowSkills/.claude/skills/"* ~/.claude/skills/ && rm -rf "$tmpdir" && echo "Installed:" && ls ~/.claude/skills/android-*
+```
+
+安装后重启 Claude Code，在任意 Android 项目中运行 `/android-init` 生成项目档案。
+
+### 更新
+
+在 Claude Code 中粘贴：
+
+```
+更新我的全局 Android skills（~/.claude/skills/ 下的 android-* 和 android-shared）。从 https://github.com/liangrk/WorkFlowSkills 拉取最新版本覆盖安装，完成后列出已安装的 skills 确认。
+```
+
+或使用一行命令：
+
+```bash
+tmpdir=$(mktemp -d) && git clone --depth 1 https://github.com/liangrk/WorkFlowSkills.git "$tmpdir/WorkFlowSkills" && cp -r "$tmpdir/WorkFlowSkills/.claude/skills/"* ~/.claude/skills/ && rm -rf "$tmpdir" && echo "Updated:" && ls ~/.claude/skills/android-*
+```
+
+> **注意：** 更新只覆盖 skill 定义文件和共享脚本，不会影响项目级运行时数据（tasks.json、checkpoint 等）。
