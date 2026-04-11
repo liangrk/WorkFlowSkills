@@ -19,6 +19,7 @@ When the user's request matches an available skill, invoke it using the Skill to
 | 性能分析、ANR、内存泄漏、卡顿 | `android-performance` | "性能分析"、"ANR"、"内存泄漏"、"启动慢"、"卡顿"、"耗电" |
 | 重构、提取、拆分、迁移、优化结构 | `android-refactor` | "重构"、"提取"、"拆分"、"迁移"、"优化结构" |
 | Bug 排查、调试、crash 分析 | `android-investigate` | "排查 bug"、"调试"、"crash"、"为什么报错" |
+| 实施修复、修复排查结论 | `android-fix` | "修复"、"实施修复"、"fix findings"、"修复结论" |
 | 保存进度、恢复状态 | `android-checkpoint` | "保存进度"、"恢复"、"checkpoint" |
 | Figma 设计审查 | `android-design-review` | "设计审查"、"Figma"、"设计稿" |
 | 文档更新 | `android-document-release` | "更新文档"、"文档同步" |

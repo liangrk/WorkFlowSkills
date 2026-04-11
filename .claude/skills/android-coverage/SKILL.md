@@ -59,12 +59,16 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
-# 加载与覆盖率相关的历史学习记录
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
@@ -80,7 +84,9 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
@@ -852,19 +858,25 @@ fi
 
 1. **发现覆盖率配置问题** -- 如 JaCoCo 版本兼容性、排除规则不当、多模块覆盖率合并失败，使用 android-learnings-log 记录:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"pitfall","key":"<配置问题简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<配置文件>"]}'
    ```
 
 2. **发现测试生成失败模式** -- 如特定类类型难以自动生成测试、mock 策略失效，记录为 pitfall:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"pitfall","key":"<失败模式简述>","insight":"<失败原因和绕过方案>","confidence":7,"source":"observed","files":["<相关文件>"]}'
    ```
 
 3. **发现高效测试策略** -- 如某个 mock 模式特别高效、某个覆盖率提升技巧特别有效，记录为 technique:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"coverage","type":"technique","key":"<策略名>","insight":"<策略描述>","confidence":7,"source":"inferred","files":[]}'
    ```
 

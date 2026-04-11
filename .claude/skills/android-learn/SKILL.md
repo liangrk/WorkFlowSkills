@@ -150,7 +150,9 @@ voice-triggers:
    若 FILE_MISSING:
    1. 运行预加载脚本:
       ```bash
-      SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+      _R="$(git worktree list | head -1 | awk '{print $1}')"
+      SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+      [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
       bash "$SHARED_BIN/android-learnings-bootstrap"
       ```
    2. 重新检查条目数
@@ -196,7 +198,9 @@ voice-triggers:
 
 1. 运行搜索脚本:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-search" --limit 50
    ```
 
@@ -234,7 +238,9 @@ voice-triggers:
 
 2. 运行跨项目搜索:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-search" \
      --query "<keyword>" \
      --limit 20 \
@@ -340,7 +346,9 @@ voice-triggers:
 
 3. 调用脚本写入:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '<json>'
    ```
 

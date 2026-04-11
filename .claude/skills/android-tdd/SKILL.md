@@ -58,12 +58,16 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 # 加载与测试相关的历史学习记录
 LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
@@ -78,7 +82,9 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
@@ -1328,13 +1334,17 @@ TDD 完成后，将测试过程中的发现记录到学习系统以供未来 ses
 
 1. **发现测试框架特有坑** — 如 MockK inline mock 限制、JUnit5 参数化测试配置、协程 TestDispatcher 边界，使用 android-learnings-log 记录:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"tdd","type":"pitfall","key":"<框架坑简述>","insight":"<问题描述和解决方案>","confidence":8,"source":"observed","files":["<相关测试文件>"]}'
    ```
 
 2. **发现有效的测试模式** — 如某个 mock 策略特别高效、某个边界测试特别有效，记录为 technique:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"tdd","type":"technique","key":"<模式名>","insight":"<模式描述>","confidence":7,"source":"inferred","files":[]}'
    ```
 

@@ -90,6 +90,7 @@ if [ -z "$MAIN_WORKTREE" ]; then
 fi
 TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
 SHARED_BIN="$MAIN_WORKTREE/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 ```
 
 > **路径说明:** `$SHARED_BIN` 指向主 worktree 中的共享脚本目录。
@@ -218,6 +219,45 @@ fi
 ```
 
 如果找到相关学习记录（如构建顺序依赖、环境配置问题），在执行任务时注意避免这些已知问题。
+
+### 前置: 加载项目上下文
+
+**优先从 android-init 的项目档案读取上下文。** 如果 android-init 已执行过，
+`.claude/init-status.json` 存在，读取其中的 profile 路径获取项目信息:
+
+```bash
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+INIT_STATUS="$_R/.claude/init-status.json"
+PROFILE_PATH=""
+
+if [ -f "$INIT_STATUS" ]; then
+  echo "INFO: 检测到 android-init 已执行"
+  cat "$INIT_STATUS"
+  # 提取 profile 路径并读取项目档案
+  PROFILE_PATH=$(python3 -c "
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(s.get('profile_path', ''))
+" "$INIT_STATUS" 2>/dev/null || python -c "
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(s.get('profile_path', ''))
+" "$INIT_STATUS" 2>/dev/null)
+  if [ -n "$PROFILE_PATH" ] && [ -f "$PROFILE_PATH" ]; then
+    echo "=== 项目档案 ==="
+    cat "$PROFILE_PATH"
+  fi
+else
+  echo "INFO: 未检测到 android-init 执行记录，跳过项目档案加载"
+fi
+```
+
+**项目档案数据供后续使用:**
+- 构建系统类型 (gradle/bazel) → 决定验证命令
+- 模块列表 → 确认修改范围
+- 测试框架 → 选择正确的测试命令
+- 依赖信息 → 检测依赖冲突
+- 这些信息应在 subagent prompt 中传递（见 Phase 2 并行模式的 subagent 指令）
 
 ### 前置: 环境检测
 
@@ -1388,7 +1428,8 @@ print(json.dumps(data, indent=2, ensure_ascii=False))
 - Worktree 路径: <TASK_WORKTREE_PATH>
 - 分支: <TASK_BRANCH>
 - TASKS_FILE: <MAIN_WORKTREE>/.claude/android-worktree-runner/tasks.json
-- SHARED_BIN: <MAIN_WORKTREE>/.claude/skills/android-shared/bin
+- SHARED_BIN: 在每个 bash 代码块开头定义: `_R="$(git worktree list | head -1 | awk '{print $1}')"; SHARED_BIN="$_R/.claude/skills/android-shared/bin"; [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+- 项目档案: <PROFILE_SNIPPET> (来自 .android-project-profile.json，包含构建系统、模块列表、关键依赖)
 
 ## 执行步骤
 

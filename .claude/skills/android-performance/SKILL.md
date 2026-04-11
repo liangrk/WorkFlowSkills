@@ -89,7 +89,9 @@ voice-triggers:
 ### 步骤 2: 环境检测
 
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 # 项目环境
 bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true
 
@@ -489,13 +491,17 @@ find app/src/main/res -type d | grep -E "values-[a-z]{2}|drawable-.*dpi|mipmap-.
 
 1. **发现性能反模式** -- 记录为 pitfall:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"android-performance","type":"pitfall","key":"<反模式简述>","insight":"<问题描述和触发条件>","confidence":8,"source":"observed","files":["<相关文件>"]}'
    ```
 
 2. **发现高效优化策略** -- 记录为 technique:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"android-performance","type":"technique","key":"<策略名>","insight":"<策略描述和适用场景>","confidence":7,"source":"inferred","files":["<相关文件>"]}'
    ```
 

@@ -220,7 +220,9 @@ fi
 ### 步骤 1: 运行扫描脚本
 
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 bash "$SHARED_BIN/android-scan-project" --force
 ```
 
@@ -245,6 +247,50 @@ else
   exit 1
 fi
 ```
+
+---
+
+## Phase 1.5: 写入持久化状态标记
+
+扫描完成后，写入标记文件，供 post-clear 的 Claude 和下游 skill 发现 init 已执行:
+
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+PROFILE_PATH="$PROJECT_ROOT/.android-project-profile.json"
+STATUS_DIR="$PROJECT_ROOT/.claude"
+
+mkdir -p "$STATUS_DIR"
+
+python3 -c "
+import json, os, datetime
+profile_path = os.environ.get('PROFILE_PATH', '.android-project-profile.json')
+status = {
+    'skill': 'android-init',
+    'ran_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'profile_path': profile_path,
+    'profile_age_seconds': int(os.path.getmtime(profile_path) - os.path.getmtime(status_dir)) if os.path.exists(profile_path) else None
+}
+status_dir = os.environ.get('STATUS_DIR', '.claude')
+with open(os.path.join(status_dir, 'init-status.json'), 'w') as f:
+    json.dump(status, f, indent=2, ensure_ascii=False)
+print('init-status.json written')
+" 2>/dev/null || python -c "
+import json, os, datetime
+profile_path = os.environ.get('PROFILE_PATH', '.android-project-profile.json')
+status_dir = os.environ.get('STATUS_DIR', '.claude')
+status = {
+    'skill': 'android-init',
+    'ran_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'profile_path': profile_path
+}
+with open(os.path.join(status_dir, 'init-status.json'), 'w') as f:
+    json.dump(status, f, indent=2, ensure_ascii=False)
+print('init-status.json written')
+"
+```
+
+> **文件位置:** `.claude/init-status.json`（与 `.claude/skills/` 同级）
+> **用途:** 下游 skill 和 post-clear Claude 通过 `ls .claude/init-status.json` 发现 init 已执行，读取 profile 路径获取项目上下文。
 
 ---
 
@@ -385,6 +431,7 @@ fi
 项目根目录/
 ├── .android-project-profile.json          ← 本 skill 产出的项目档案 (gitignored)
 ├── .claude/
+│   ├── init-status.json                  ← 执行标记 (供 post-clear 发现)
 │   └── skills/
 │       ├── android-init/
 │       │   └── SKILL.md                    ← 本 skill

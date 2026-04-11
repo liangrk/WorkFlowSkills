@@ -46,12 +46,16 @@ voice-triggers:
 
 **前置引导:** 若学习记录为空，先运行预加载:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ```bash
-# 加载与审查相关的历史学习记录
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
 if [ -n "$LEARNINGS" ]; then
   echo "=== 相关学习记录 ==="
@@ -67,7 +71,9 @@ fi
 
 **环境检测优化:** 优先调用共享脚本获取技术栈信息:
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 echo "$ENV_JSON"
 ```
@@ -896,13 +902,17 @@ mkdir -p docs/reviews
 
 1. **发现新的 BLOCKER/WARNING 模式** — 如果该问题是项目中首次发现（非已有学习记录中的重复模式），使用 android-learnings-log 记录:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"code-review","type":"pitfall","key":"<简短标识>","insight":"<问题描述>","confidence":8,"source":"observed","files":["<相关文件>"]}'
    ```
 
 2. **发现项目特有的架构约定** — 如果推断的架构模式与实际不一致，记录为 convention:
    ```bash
-   SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+   _R="$(git worktree list | head -1 | awk '{print $1}')"
+   SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+   [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
    bash "$SHARED_BIN/android-learnings-log" '{"skill":"code-review","type":"convention","key":"<约定名>","insight":"<约定描述>","confidence":9,"source":"observed","files":[]}'
    ```
 

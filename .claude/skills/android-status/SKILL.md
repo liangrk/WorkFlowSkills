@@ -224,7 +224,9 @@ fi
 ### 0.7 Learnings 统计
 
 ```bash
-SHARED_BIN="$(git worktree list | head -1 | awk '{print $1}')/.claude/skills/android-shared/bin"
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 LEARN_BIN="$SHARED_BIN/android-learnings-search"
 if [ -f "$LEARN_BIN" ]; then
   # 获取总数
