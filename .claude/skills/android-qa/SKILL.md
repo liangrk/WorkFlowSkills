@@ -937,7 +937,7 @@ grep -r "setOnTouchListener\|setOnClickListener" app/src/main --include="*.kt" |
 ```bash
 # 检查是否有可用设备
 DEVICES=$(adb devices 2>/dev/null | grep -v "List of devices" | grep -v "^$" | grep -v "unauthorized")
-DEVICE_COUNT=$(echo "$DEVICES" | wc -l)
+DEVICE_COUNT=$(echo "$DEVICES" | wc -l | tr -d ' ')
 ```
 
 **无设备:**

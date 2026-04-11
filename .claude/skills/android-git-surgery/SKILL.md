@@ -121,7 +121,7 @@ git diff --name-only --diff-filter=U
 echo ""
 
 # 统计
-CONFLICT_COUNT=$(git diff --name-only --diff-filter=U | wc -l)
+CONFLICT_COUNT=$(git diff --name-only --diff-filter=U | wc -l | tr -d ' ')
 echo "冲突文件数: $CONFLICT_COUNT"
 ```
 
