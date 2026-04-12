@@ -199,6 +199,24 @@ ProGuard: app/proguard-rules.pro
 
 ---
 
+## 自动进入 Plan 模式
+
+环境检测完成后，**立即调用 EnterPlanMode 工具**进入 plan 模式。所有后续 Phase (拆分、审查、自省) 均在 plan 模式中执行。
+
+**为什么进入 plan 模式:**
+- 拆分和审查本质是"探索 + 设计 + 审批"流程，与 plan 模式的定位完全匹配
+- plan 模式提供结构化的用户审批机制 (ExitPlanMode)，替代手动的 AskUserQuestion 审批
+- 用户可以在 plan 模式中随时中断或调整方向
+
+**退出 plan 模式的时机:**
+- 在最终审批阶段，将完整 plan 写入 plan 模式的 plan 文件
+- 调用 ExitPlanMode 附带 allowedPrompts (执行阶段所需权限)
+- 用户批准后自动进入执行选项
+
+> 如果用户拒绝 EnterPlanMode，回退到普通模式继续全流程。
+
+---
+
 ## Phase 1: 需求拆分
 
 接收功能需求，按 Android 拆分规则生成结构化 plan。
@@ -948,6 +966,14 @@ Plan: <功能标题>
 ```
 
 > 💾 **[检查点]** 即将进入执行阶段。建议运行 `/android-checkpoint save` 保存进度。
+
+### Plan 模式退出 (如果在 plan 模式中)
+
+将最终审批摘要写入 plan 模式的 plan 文件，然后调用 ExitPlanMode:
+- allowedPrompts 包含: `{ "tool": "Bash", "prompt": "run android-worktree-runner to execute plan tasks" }`
+- 用户批准后，直接进入下面的执行选项
+
+### 执行选项
 
 使用 AskUserQuestion:
 > 审查完成。如何处理?
