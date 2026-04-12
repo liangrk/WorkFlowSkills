@@ -249,8 +249,24 @@ Material:    版本 X / 未使用
 
 ## Phase 2: 项目上下文分析
 
-### 步骤 1: 检测已有组件 (多模块扫描)
+### 步骤 1: 检测已有组件
 
+**优先从项目档案读取**（如果 Phase 0 已获取 profile）:
+```bash
+# 从 profile 提取已有组件列表（零扫描开销）
+cat .android-project-profile.json 2>/dev/null | python3 -c "
+import json,sys
+p=json.load(sys.stdin)
+c=p.get('components',{})
+composables=c.get('custom_composables',[])
+views=c.get('custom_views',[])
+if composables: print('Composables:'); [print(f'  {x[\"file\"]}') for x in composables]
+if views: print('Custom Views:'); [print(f'  {x[\"file\"]}') for x in views]
+if not composables and not views: print('No custom components detected')
+" 2>/dev/null
+```
+
+**仅在 profile 不存在或组件列表为空时回退到扫描:**
 ```bash
 # Compose 自定义组件
 grep -rl "@Composable" "$PROJECT_ROOT" --include="*.kt" | grep -v test | head -20

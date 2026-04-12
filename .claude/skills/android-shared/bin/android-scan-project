@@ -5,6 +5,7 @@
 set -euo pipefail
 
 FORCE_SCAN="false"
+FORMAT="json"
 case "${1:-}" in
   --force)  FORCE_SCAN="true"; shift ;;
   --format) FORMAT="${2:-json}"; shift 2 ;;
@@ -59,12 +60,17 @@ grep_any() {
   return 1
 }
 
+# JSON string escaper — prevents injection of " \ control chars
+json_escape() {
+  printf '%s' "$1" | sed 's|\\|\\\\|g; s|"|\\"|g'
+}
+
 # JSON array builder: list_to_json "item1" "item2" -> ["item1","item2"]
 list_to_json() {
   [ $# -eq 0 ] && echo "[]" && return
   local json="["
   for item in "$@"; do
-    [ -n "$item" ] && json="$json\"$item\","
+    [ -n "$item" ] && json="$json\"$(json_escape "$item")\","
   done
   json="${json%,}]"
   echo "$json"
@@ -79,7 +85,7 @@ files_to_json() {
     [ -z "$f" ] && continue
     local name=$(basename "$f" .kt)
     local rel=$(echo "$f" | sed "s|$root/||")
-    json="$json{\"name\":\"$name\",\"file\":\"$rel\"},"
+    json="$json{\"name\":\"$(json_escape "$name")\",\"file\":\"$(json_escape "$rel")\"},"
   done
   json="${json%,}]"
   echo "$json"
@@ -113,12 +119,7 @@ while IFS= read -r mod; do
   for ext in ".kts" ""; do
     [ -f "$PROJECT_ROOT/$mod/build.gradle$ext" ] && ALL_BUILD_FILES="$ALL_BUILD_FILES $PROJECT_ROOT/$mod/build.gradle$ext"
   done
-done < <((cat "$PROJECT_ROOT/settings.gradle" "$PROJECT_ROOT/settings.gradle.kts" 2>/dev/null | extract_modules_stdin) || true)
-
-# Extract modules from stdin (for pipe usage)
-extract_modules_stdin() {
-  sed -n 's/.*include[[:space:]]*(\?[["'\''":]*\([a-zA-Z0-9:_-]*\).*/\1/p' | sed 's/^://' | grep -v '^$'
-}
+done < <((cat "$PROJECT_ROOT/settings.gradle" "$PROJECT_ROOT/settings.gradle.kts" 2>/dev/null | sed -n 's/.*include[[:space:]]*(\?[["'\''":]*\([a-zA-Z0-9:_-]*\).*/\1/p' | sed 's/^://' | grep -v '^$') || true)
 
 SETTINGS_FILE=""
 for f in "$PROJECT_ROOT/settings.gradle.kts" "$PROJECT_ROOT/settings.gradle"; do
@@ -200,7 +201,12 @@ if [ -n "$ALL_GRADLE" ]; then
 fi
 
 # ── Dependencies: DI / async / database / storage / image / media / security / analytics ──
-export DI_FRAMEWORK="" DI_VERSION=""
+export DI_FRAMEWORK="" DI_VERSION="" \
+  COROUTINES="" RXJAVA="" FLOW_EXTENSIONS="" ORM="" ORM_VERSION="" \
+  ENCRYPTION="" DATASTORE="" ENCRYPTED_PREFERENCES="" \
+  CAMERA_X="" EXOPLAYER="" MEDIA3="" BIOMETRIC="" SECURITY_ENCRYPTION="" \
+  CERTIFICATE_PINNING="" FIREBASE_ANALYTICS="" CRASHLYTICS="" \
+  KSP="" HILT_PLUGIN="" TIMBER="" LEAKCANARY="" CHUCKER="" DESUGAR=""
 if [ -n "$ALL_GRADLE" ]; then
   if grep_any "hilt" $ALL_GRADLE; then DI_FRAMEWORK="hilt"; DI_VERSION=$(echo $ALL_GRADLE | xargs grep 'hilt' 2>/dev/null | { read -r line; extract_version "$line"; } | head -1 || true)
   elif grep_any "koin" $ALL_GRADLE; then DI_FRAMEWORK="koin"
@@ -229,7 +235,7 @@ if [ -n "$ALL_GRADLE" ]; then
   grep_any "chucker" $ALL_GRADLE && CHUCKER="true"
   grep_any "desugar" $ALL_GRADLE && DESUGAR="true"
 fi
-MIGRATION_COUNT=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l "Migration" 2>/dev/null | wc -l | tr -d ' ')
+export MIGRATION_COUNT=$(find "$PROJECT_ROOT" -name "*.kt" -not -path "*/build/*" -not -path "*/test/*" 2>/dev/null | xargs grep -l "Migration" 2>/dev/null | wc -l | tr -d ' ' || true)
 
 # ── Dependencies: testing ─────────────────────────────────────────────
 export TEST_UNIT="[]" TEST_UI="[]" COVERAGE_TOOL="" COVERAGE_MIN=""
@@ -255,11 +261,11 @@ export ARCH_PATTERN="unknown" ARCH_LAYERS="[]" PRESENTATION_PATTERN=""
 export STATE_MANAGEMENT="" MODULE_TYPE="single-module" DI_SCOPE=""
 
 if [ -d "$PROJECT_ROOT/app/src/main" ]; then
-  HP=$(find "$PROJECT_ROOT" -type d -name "presentation" -not -path "*/build/*" 2>/dev/null | head -1)
-  HD=$(find "$PROJECT_ROOT" -type d -name "domain" -not -path "*/build/*" 2>/dev/null | head -1)
-  HDA=$(find "$PROJECT_ROOT" -type d -name "data" -not -path "*/build/*" 2>/dev/null | head -1)
-  HU=$(find "$PROJECT_ROOT" -type d -name "ui" -not -path "*/build/*" -not -path "*/res/*" 2>/dev/null | head -1)
-  HV=$(find "$PROJECT_ROOT" -type d -name "viewmodel" -not -path "*/build/*" 2>/dev/null | head -1)
+  HP=$(find "$PROJECT_ROOT" -type d -name "presentation" -not -path "*/build/*" 2>/dev/null | head -1 || true)
+  HD=$(find "$PROJECT_ROOT" -type d -name "domain" -not -path "*/build/*" 2>/dev/null | head -1 || true)
+  HDA=$(find "$PROJECT_ROOT" -type d -name "data" -not -path "*/build/*" 2>/dev/null | head -1 || true)
+  HU=$(find "$PROJECT_ROOT" -type d -name "ui" -not -path "*/build/*" -not -path "*/res/*" 2>/dev/null | head -1 || true)
+  HV=$(find "$PROJECT_ROOT" -type d -name "viewmodel" -not -path "*/build/*" 2>/dev/null | head -1 || true)
 
   [ -n "$HP" ] && [ -n "$HD" ] && [ -n "$HDA" ] && { ARCH_PATTERN="clean-architecture"; ARCH_LAYERS='["presentation","domain","data"]'; }
   [ "$ARCH_PATTERN" = "unknown" ] && [ -n "$HD" ] && [ -n "$HDA" ] && { ARCH_PATTERN="clean-architecture"; ARCH_LAYERS='["domain","data"]'; }
@@ -339,8 +345,8 @@ if [ -d "$PROJECT_ROOT/app/src/main" ]; then
   done
   [ ${#FONT_NAMES[@]} -gt 0 ] && FONTS=$(list_to_json "${FONT_NAMES[@]}")
 
-  DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -type f -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
-  VECTOR_DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -name "*.xml" -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ')
+  DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -type f -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ' || true)
+  VECTOR_DRAWABLES_COUNT=$(find "$PROJECT_ROOT" -path "*/res/drawable*" -name "*.xml" -not -path "*/build/*" 2>/dev/null | wc -l | tr -d ' ' || true)
 
   LOCALE_NAMES=()
   for l in $(ls "$PROJECT_ROOT/app/src/main/res/" 2>/dev/null | grep "^values-" | sed 's/values-//' | head -10); do
