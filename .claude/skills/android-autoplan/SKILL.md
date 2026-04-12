@@ -35,7 +35,12 @@ voice-triggers:
 
 **参数处理:**
 - `review`: 读取指定的 plan 文件，直接进入 Phase 2 (CEO Review)
-- `split`: 拆分完成后输出 plan，不进入审查流程
+  - **source 判断规则:** 检查 plan 文件头部是否有 `> 来源: android-investigate` 或
+    `> 来源: android-fix` 标记。若有，source 设为对应的 `investigate` 或 `fix`；
+    若无标记或标记为 `android-autoplan`，source 设为 `autoplan`。
+  - 外部 skill (investigate/fix) 调用 `/android-autoplan review <plan-file>` 时，
+    应在 plan 文件头部添加来源标记以便正确设置 source。
+- `split`: 拆分完成后输出 plan，不进入审查流程。完成后仍须生成 plan-status.json (phase: `split-only`)
 - 无参数或带需求描述: 完整流程 (拆分 → 审查)
 - **执行问题修订模式:** 当 worktree-runner 执行中发现 plan 级别问题时，
   会附带 plan 文件调用本 skill 的 `review` 模式。此时:
@@ -982,17 +987,78 @@ Plan: <功能标题>
 > - C) 修改 — 指定需要调整的部分
 > - D) 重新审查 — 从某个阶段重新开始
 
+### 生成 Plan Status (状态持久化)
+
+**无论用户选择哪个执行选项 (A/B)，在保存 plan 文件后，必须生成 plan-status.json。**
+
+**注意:** 选项 C (修改) 和 D (重新审查) 是回退操作，回到审查阶段，不生成 plan-status.json。
+当用户选择 C/D 后重新完成审批时，再按当时的入口路径生成 plan-status.json。
+
+#### plan_id 生成
+
+```bash
+PLAN_ID="plan-$(date +%Y%m%d-%H%M%S)"
+```
+
+#### plan-status.json 格式 (Write-Once)
+
+此文件由 autoplan 写入后**不再修改**。runner 只读，不回写。
+
+```json
+{
+  "version": 1,
+  "plan_id": "<PLAN_ID>",
+  "title": "<plan 标题>",
+  "plan_file": "docs/plans/<slug>.md",
+  "source": "<来源>",
+  "status": "approved",
+  "phase": "<完成时的阶段>",
+  "created_at": "<ISO 8601 UTC>",
+  "approved_at": "<ISO 8601 UTC>",
+  "review_summary": {
+    "mechanical_decisions": <N>,
+    "taste_decisions": <N>,
+    "user_challenges": <N>
+  }
+}
+```
+
+**source 取值规则:**
+
+| 入口路径 | source | phase |
+|---------|--------|-------|
+| 全流程 (split → review → approve) | `autoplan` | `final-approval` |
+| `review <plan-file>` | `autoplan` (默认) | `review-only` |
+| `split <需求>` | `autoplan` | `split-only` |
+| 外部 plan (investigate/fix 产出) | `investigate` / `fix` | `review-only` |
+| 手动创建的 plan 文件 | `manual` | `review-only` |
+
+#### 写入命令
+
+```bash
+STATUS_FILE="docs/plans/<slug>-status.json"
+echo '<plan-status.json 内容>' > "$STATUS_FILE"
+```
+
 ### 自动衔接 android-worktree-runner
 
 **当用户选择 A (批准并执行) 时:**
 
 1. 将 plan 文件保存到 `docs/plans/<slug>.md`
-2. 使用 Skill 工具调用 android-worktree-runner (skill: "android-worktree-runner", args: "import docs/plans/<slug>.md"):
-3. android-worktree-runner 接管执行流程
+2. 生成 `docs/plans/<slug>-status.json` (见上方)
+3. 使用 Skill 工具调用 android-worktree-runner (skill: "android-worktree-runner", args: "import docs/plans/<slug>.md"):
+4. android-worktree-runner 接管执行流程
+
+**当用户选择 B (仅保存) 时:**
+
+1. 将 plan 文件保存到 `docs/plans/<slug>.md`
+2. 生成 `docs/plans/<slug>-status.json` (同上)
+3. 提示用户稍后运行 `/android-worktree-runner import docs/plans/<slug>.md`
 
 **衔接协议:**
 - `android-autoplan` 产出的 plan 文件使用 Superpowers 格式 (`### Task N:`)，
   android-worktree-runner 的 Phase 0 可直接解析此格式
+- plan-status.json 作为审批凭证传递给 runner，runner 读取但不修改
 - plan 文件路径作为参数传递给 android-worktree-runner
 - android-worktree-runner 负责创建 worktree、执行任务、Android 验证
 - `android-autoplan` 的审查结论 (失败模式、性能风险、ProGuard 提醒)
@@ -1019,6 +1085,8 @@ android-autoplan Phase 3.5: 自省 (条件触发) → 盲点/假设/决策回溯
   └─ Phase 4 全部通过 → 跳过
   ↓
 android-autoplan 最终审批: 用户批准
+  ↓
+生成 plan-status.json (write-once 审批凭证)
   ↓
 自动调用 /android-worktree-runner import <plan-file>
   ↓
@@ -1108,6 +1176,16 @@ android-worktree-runner Phase 3: 完成
 
 嵌入 plan 文件末尾的 "## 失败模式" 部分 (详见 Phase 4 步骤 5)
 
+### Plan Status 文件
+
+写入 `docs/plans/<slug>-status.json`，格式详见「生成 Plan Status」章节。
+
+此文件是 **write-once** 的审批凭证:
+- autoplan 写入后不再修改
+- android-worktree-runner 读取但不修改
+- android-status 扫描此文件展示"已批准待执行"状态
+- /clear 后通过此文件恢复执行上下文
+
 ---
 
 ## 与其他 Skill 的衔接
@@ -1125,12 +1203,15 @@ android-worktree-runner Phase 3: 完成
 ```
 
 **衔接规则:**
-- `android-autoplan` 审查通过后，**自动调用** `/android-worktree-runner import <plan-file>`
+- `android-autoplan` 审查通过后，生成 **plan-status.json** (write-once 审批凭证)，
+  然后根据用户选择自动调用或提示手动调用 `/android-worktree-runner import <plan-file>`
 - 产出的 plan 文件使用 Superpowers 格式 (`### Task N:`)，
   android-worktree-runner 的 Phase 0 可直接解析此格式
+- plan-status.json 作为审批凭证，runner 读取其中的 source/review_summary 丰富 tasks.json 元数据
 - 审查中发现的 Android 特有问题 (生命周期、ProGuard、Manifest)
   已在 plan 的任务步骤中明确标注，android-worktree-runner 执行时会看到
 - 用户也可以选择仅保存不执行，稍后手动调用 android-worktree-runner
+- `/clear` 后通过 plan-status.json 恢复执行上下文 (android-status 自动检测)
 
 ## 异常情况处理
 

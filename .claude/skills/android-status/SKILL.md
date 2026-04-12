@@ -149,6 +149,78 @@ else
 fi
 ```
 
+### 0.3.5 Plan Status (已批准待执行)
+
+扫描 `docs/plans/*-status.json`，与 tasks.json 交叉比对，检测已批准但未执行的 plan:
+
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$PROJECT_ROOT" ]; then
+  STATUS_FILES=$(ls "$PROJECT_ROOT"/docs/plans/*-status.json 2>/dev/null)
+  TASKS_FILE="$PROJECT_ROOT/.claude/android-worktree-runner/tasks.json"
+  if [ -n "$STATUS_FILES" ]; then
+    PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+    if [ -n "$PYTHON" ]; then
+      echo "$STATUS_FILES" | "$PYTHON" -c "
+import json, sys, os
+
+# 读取 tasks.json 中已导入的 plan_id 列表
+imported_ids = set()
+if os.path.isfile('$TASKS_FILE'):
+    try:
+        tasks_data = json.load(open('$TASKS_FILE'))
+        imported_ids = set(tasks_data.get('plans', {}).keys())
+    except: pass
+
+approved = []
+not_imported = []
+for line in sys.stdin:
+    f = line.strip()
+    if not f or not os.path.isfile(f): continue
+    try:
+        d = json.load(open(f))
+        if d.get('status') == 'approved':
+            pf = d.get('plan_file', '')
+            plan_exists = os.path.isfile(os.path.join('$PROJECT_ROOT', pf))
+            pid = d.get('plan_id', '')
+            already_imported = pid in imported_ids
+            entry = {
+                'title': d.get('title', 'unknown'),
+                'plan_file': pf,
+                'source': d.get('source', 'unknown'),
+                'approved_at': d.get('approved_at', ''),
+                'plan_exists': plan_exists,
+                'plan_id': pid,
+                'already_imported': already_imported
+            }
+            approved.append(entry)
+            if not already_imported:
+                not_imported.append(entry)
+    except: pass
+
+if approved:
+    print(f'PLAN_STATUS_APPROVED:{len(approved)}')
+    print(f'PLAN_STATUS_NOT_IMPORTED:{len(not_imported)}')
+    for p in approved:
+        exists = 'OK' if p['plan_exists'] else 'MISSING'
+        imp = 'IMPORTED' if p['already_imported'] else 'PENDING'
+        print(f'  {p[\"title\"]} | source: {p[\"source\"]} | plan: {exists} | status: {imp}')
+else:
+    print('PLAN_STATUS_APPROVED:0')
+    print('PLAN_STATUS_NOT_IMPORTED:0')
+" 2>/dev/null || echo "PLAN_STATUS:PARSE_ERROR"
+    else
+      echo "PLAN_STATUS:NO_PYTHON"
+    fi
+  else
+    echo "PLAN_STATUS_APPROVED:0"
+    echo "PLAN_STATUS_NOT_IMPORTED:0"
+  fi
+else
+  echo "PLAN_STATUS:N/A"
+fi
+```
+
 ### 0.4 Open Pull Requests
 
 ```bash
@@ -430,12 +502,13 @@ fi
 |--------|------|------|------|
 | 1 | tasks.json 中有 `in-progress` 任务 | `/android-worktree-runner` | 继续执行当前任务 |
 | 2 | tasks.json 中有 `pending` 任务 (无 in-progress) | `/android-worktree-runner` | 开始下一个任务 |
-| 3 | 有未提交的修改 (modified > 0) 且不在 main/master | `/android-code-review` 或 `/android-ship` | 审查或提交当前改动 |
-| 4 | docs/reviews/ 中有 code-review 但无 qa-report | `/android-qa` | 代码已审查但未做 QA |
-| 5 | 有 open PR 但 reviews 为空 | `/android-code-review` | PR 需要代码审查 |
-| 6 | docs/plans/ 为空 | `/android-autoplan` | 需要先制定 plan |
-| 7 | 有 plan 文件但 tasks.json 不存在 | `/android-worktree-runner import` | plan 已就绪，导入执行 |
-| 8 | 检查点为空 | `/android-checkpoint save` | 建议保存当前状态 |
+| 3 | 有 plan-status.json 显示 `approved` 但 tasks.json 中无匹配 plan | `/android-worktree-runner import <plan-file>` | 已批准但未执行，恢复执行 |
+| 4 | 有未提交的修改 (modified > 0) 且不在 main/master | `/android-code-review` 或 `/android-ship` | 审查或提交当前改动 |
+| 5 | docs/reviews/ 中有 code-review 但无 qa-report | `/android-qa` | 代码已审查但未做 QA |
+| 6 | 有 open PR 但 reviews 为空 | `/android-code-review` | PR 需要代码审查 |
+| 7 | docs/plans/ 为空 | `/android-autoplan` | 需要先制定 plan |
+| 8 | 有 plan 文件但 tasks.json 不存在且无 plan-status.json | `/android-worktree-runner import` | plan 已就绪，导入执行 |
+| 9 | 检查点为空 | `/android-checkpoint save` | 建议保存当前状态 |
 
 ### 输出格式
 
@@ -478,6 +551,8 @@ Phase 2: 基于状态推荐下一步操作
 |------|----------|
 | 不在 git 仓库中 | 仅显示 "N/A" for all sections，不报错 |
 | tasks.json 损坏 | Worktree Runner section 显示 "PARSE_ERROR" |
+| plan-status.json 损坏 | Plan Status section 显示 "PARSE_ERROR"，跳过该文件 |
+| plan-status.json 引用的 plan 文件不存在 | 标记为 "MISSING"，推荐中仍提示恢复但标注 plan 缺失 |
 | gh 未安装 | PRs section 显示 "N/A (gh CLI not installed)" |
 | python 未安装 | Learnings/PRs 显示 "N/A (python not found)" |
 | 网络/gh API 超时 | PRs section 显示 "N/A (timeout)" |
@@ -495,7 +570,7 @@ android-status 是一个**只读监控** skill，不修改任何项目状态。
 | android-worktree-runner | 读取 | tasks.json |
 | android-checkpoint | 读取 | checkpoint 文件列表 |
 | android-code-review | 读取 | docs/reviews/*.md |
-| android-autoplan | 读取 | docs/plans/*.md |
+| android-autoplan | 读取 | docs/plans/*.md + docs/plans/*-status.json |
 | android-learn | 读取 | learnings.jsonl (via search script) |
 | android-qa | 读取 | docs/reviews/*-qa-report.md |
 
