@@ -1,3 +1,168 @@
+# WorkFlow Skills
+
+一套 Claude Code skill 工具链，覆盖从开发到日常工作的完整生命周期。
+
+## Skill 集合
+
+| Skill | 类型 | 说明 |
+|-------|------|------|
+| `weekly-report` | 日常工作 | 自动生成周报，整合多仓库 git log 和任务状态 |
+| `dump-android-ui` | UI 分析 | 一键 dump Android App UI 视图树，生成元素 ID/文本/布局分析和交互式可视化 |
+| `android-*` | Android 开发 | Android 完整开发流程 (见下方详细说明) |
+
+---
+
+## weekly-report
+
+自动生成结构化工作周报，整合多个仓库的 git 提交和任务状态。
+
+### 快速开始
+
+```bash
+# 1. 复制配置模板
+cp weekly-report/config-template.yaml my-weekly.yaml
+
+# 2. 编辑配置 - 填写仓库路径和任务列表
+# (用编辑器修改 my-weekly.yaml)
+
+# 3. 生成周报
+python weekly-report/scripts/generate-report.py --config my-weekly.yaml
+
+# 4. (可选) 导出到文件
+python weekly-report/scripts/generate-report.py --config my-weekly.yaml > weekly-$(date +%Y%m%d).md
+```
+
+### 配置示例
+
+```yaml
+repositories:
+  - name: "主项目"
+    path: "./main-project"
+  - name: "后端服务"
+    path: "../backend-service"
+
+tasks:
+  - name: "用户登录功能"
+    status: "completed"       # completed / in_progress / planned
+    description: "完成 OAuth2.0 登录"
+    category: "feature"
+  
+  - name: "性能优化"
+    status: "in_progress"
+    progress: 60
+    description: "数据库查询优化"
+    category: "optimization"
+  
+  - name: "API 文档"
+    status: "planned"
+    description: "补充接口文档"
+    category: "doc"
+```
+
+### 输出效果
+
+```
+==================================================
+                     工作周报
+报告周期: 2026-04-13 ~ 2026-04-19
+==================================================
+
+【本周完成工作】
+--------------------------------------------------
+用户登录功能
+   - 修复用户登录成功后 Token 刷新逻辑
+   - 完成用户登录模块开发，支持手机号和 OAuth 登录
+
+【进行中任务】
+--------------------------------------------------
+性能优化 (60%)
+   - 优化数据库查询性能
+
+【下周计划】
+--------------------------------------------------
+API 文档
+   补充接口文档
+
+【进度总览】
+--------------------------------------------------
+总计: 3 | 完成: 1 | 进行中: 1 | 计划中: 1
+总体进度: 53.3%
+==================================================
+```
+
+### 文件结构
+
+```
+weekly-report/
+├── SKILL.md                 # Skill 定义
+├── weekly-config.yaml       # 默认配置模板
+├── config-template.yaml     # 带注释的配置模板 (推荐)
+├── README.md                # 详细文档
+└── scripts/
+    └── generate-report.py   # 周报生成脚本
+```
+
+### 依赖
+
+- Python 3.7+
+- PyYAML (`pip install pyyaml`)
+
+---
+
+## dump-android-ui
+
+一键 dump Android App 的 UI 视图树，自动生成元素 ID、文本内容、布局结构分析和交互式可视化报告。
+
+### 快速开始
+
+```bash
+# 自动检测当前前台 App 并 dump
+python .claude/skills/dump-android-ui/scripts/dump_android_ui.py
+
+# 指定 App 包名
+python .claude/skills/dump-android-ui/scripts/dump_android_ui.py --package com.example.app
+
+# 指定输出目录
+python .claude/skills/dump-android-ui/scripts/dump_android_ui.py --package com.example.app --output ./dumps
+```
+
+### 输出文件
+
+```
+android-dumps/YYYYMMDD-HHMMSS/
+├── ui_hierarchy.xml      # 原始 UI 层次 XML (仅目标 App)
+├── screenshot.png        # 屏幕截图
+├── analysis.json         # 结构化分析 (元素 ID、文本、类型分布)
+├── tree_view.html        # 交互式可视化树 (可搜索/展开/复制 ID)
+└── report.txt            # 文本摘要报告
+```
+
+### 功能特性
+
+- **自动检测** — ADB、设备连接、前台 App 包名
+- **智能过滤** — 只保留目标 App 相关节点，去除系统 UI 和其他 App 噪声
+- **完整覆盖** — 所有控件都保留，无论是否有 resource-id
+- **ID 简化** — 输出中去掉包名前缀 (如 `id/btn_ok` 而非 `com.app:id/btn_ok`)
+- **交互式可视化** — HTML 树形视图，支持搜索、展开/折叠、点击复制 ID
+- **Fallback** — uiautomator 失败自动切换 dumpsys activity
+
+### 使用场景
+
+| 场景 | 说明 |
+|------|------|
+| UI 测试自动化 | 获取元素 ID 编写 Espresso/UIAutomator 测试 |
+| UI 审查 | 检查布局层次和资源 ID 命名规范 |
+| 竞品分析 | 分析其他 App 的 UI 结构和交互设计 |
+| 无障碍检查 | 检测 content-desc 缺失情况 |
+
+### 依赖
+
+- Python 3.7+
+- ADB (Android Debug Bridge)
+- 已连接的 Android 设备或模拟器
+
+---
+
 # Android Development Skills
 
 一套专为 Android 开发设计的 Claude Code skill 工具链。覆盖从需求定义到代码交付的完整生命周期。
