@@ -1,1351 +1,183 @@
 ---
 name: android-qa
 description: |
-  Android QA 测试 skill。在 worktree-runner plan 执行完毕后，
-  对已实现的功能进行功能级验证。包括静态分析、日志检查、
-  构建验证、性能基准测试、无障碍检测、基于 adb 的设备/模拟器测试，
-  以及基于 PRD 的需求验收。
-  产出 bug 报告和修复建议。
-  适用场景: 功能完成后验证、回归测试、上线前 QA。
-voice-triggers:
-  - "QA 测试"
-  - "功能验证"
-  - "测试一下"
+  Android 分层 QA: 静态分析→构建/测试→性能→无障碍→设备→PRD验收。
+  产出结构化 bug 报告,自动修复简单问题。
 ---
 
 # Android QA
 
-## 概述
-
-对当前分支或指定分支的变更进行分层 QA 测试，产出结构化 bug 报告。
-静态分析 + 构建/单元测试 + 性能基准测试 + 无障碍检测 + 设备测试 + PRD 验收六层覆盖，自动修复简单问题。
-
-**启动时声明:** "我正在使用 android-qa skill。"
-
-**零外部依赖:** 仅使用 Claude Code 原生工具 + adb (如果可用)。
-不依赖 gstack、browse、Codex、Figma MCP。
-
-## 调用方式
-
-```bash
-/android-qa                  # 对当前分支的变更进行 QA
-/android-qa <branch>         # 对指定分支 QA (与 main 或基准分支对比)
-/android-qa smoke            # 仅冒烟测试 (快速验证核心功能)
-/android-qa regression       # 回归测试 (验证已有功能未破坏)
-```
-
-**参数处理:**
-- 无参数: 对当前分支进行完整 QA
-- `<branch>`: 切换到指定分支后进行完整 QA (对比基准分支)
-- `smoke`: 仅执行 Layer 2 (构建 + 单元测试) + Layer 3A (构建性能) + Layer 1 的关键检查
-- `regression`: 扩大测试范围，包含主分支已有功能的回归验证
-
----
+**启动声明:** "我正在使用 android-qa skill。"
+**调用:** `/android-qa` | `<branch>` | `smoke` | `regression`
 
 ## Phase 0: 环境检测
 
-### 前置: 加载历史学习记录
-
-**前置引导:** 若学习记录为空，先运行预加载:
 ```bash
 _R="$(git worktree list | head -1 | awk '{print $1}')"
 SHARED_BIN="$_R/.claude/skills/android-shared/bin"
 [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
-```
-
-```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
-# 加载与 QA 相关的历史学习记录
 LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
-if [ -n "$LEARNINGS" ]; then
-  echo "=== 相关学习记录 ==="
-  echo "$LEARNINGS"
-fi
-```
-
-如果找到相关学习记录，在 QA 测试过程中重点关注这些已知的 bug 模式。
-
-### 步骤 1: 确定项目根目录和基准分支
-
-> 参考: [android-shared/detection.md](.claude/skills/android-shared/detection.md) — 公共环境检测脚本
-
-**环境检测优化:** 优先调用共享脚本获取技术栈信息:
-```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
-echo "$ENV_JSON"
-```
-脚本不可用时回退到以下内联检测命令。
 
-```bash
-# 项目根目录
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
-
-# 确定基准分支 (main 或 master)
-BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-if [ -z "$BASE_BRANCH" ]; then
-  BASE_BRANCH=$(git branch -r | grep -E 'origin/(main|master)' | head -1 | sed 's@.*origin/@@' | tr -d ' ')
-fi
-if [ -z "$BASE_BRANCH" ]; then
-  BASE_BRANCH="main"
-fi
-
-# 当前分支
+BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-```
 
-如果指定了 `<branch>` 参数:
-- 切换到该分支: `git checkout <branch>`
-- 更新 `CURRENT_BRANCH` 变量
+# 确认 Android 项目
+ls build.gradle build.gradle.kts app/build.gradle app/build.gradle.kts 2>/dev/null || { echo "NOT_ANDROID"; exit 1; }
 
-### 步骤 2: 检测项目技术栈
-
-```bash
-# 确认是 Android 项目
-if [ ! -f "build.gradle" ] && [ ! -f "build.gradle.kts" ] && \
-   [ ! -f "app/build.gradle" ] && [ ! -f "app/build.gradle.kts" ]; then
-  echo "NOT_ANDROID"
-  exit 1
-fi
-
-# 构建系统
-ls gradlew 2>/dev/null && echo "GRADLE_WRAPPER" || echo "NO_GRADLE_WRAPPER"
-ls gradle 2>/dev/null && echo "GRADLE_DIR"
-
-# 列出所有模块
-cat "$PROJECT_ROOT/settings.gradle" "$PROJECT_ROOT/settings.gradle.kts" 2>/dev/null | grep "include"
-
-# UI 框架
-grep -rl "@Composable" "$PROJECT_ROOT" --include="*.kt" 2>/dev/null | head -3
-find "$PROJECT_ROOT" -path "*/res/layout/*.xml" 2>/dev/null | head -3
-
-# 语言 (Kotlin / Java / 混用)
-grep -rl "package " "$PROJECT_ROOT/app/src/main" --include="*.kt" 2>/dev/null | head -1
-grep -rl "package " "$PROJECT_ROOT/app/src/main" --include="*.java" 2>/dev/null | head -1
-
-# 构建变体
-grep -r "buildTypes\|productFlavors" "$PROJECT_ROOT/app" --include="*.gradle*" 2>/dev/null | head -5
-```
-
-产出环境摘要:
-```
-=== 环境摘要 ===
-项目根目录:   /path/to/project
-基准分支:     main
-当前分支:     plan/auth-login-flow
-Gradle:       gradlew available
-模块列表:     app, feature:login, core:ui, core:common
-UI 框架:      Compose + XML 混用
-语言:         Kotlin
-构建变体:     debug, release
-```
-
-### 步骤 3: 检测可用设备/模拟器
-
-```bash
-# 检测 adb 是否可用
-which adb 2>/dev/null && echo "ADB_AVAILABLE" || echo "ADB_NOT_FOUND"
-
-# 列出已连接设备
-adb devices 2>/dev/null | grep -v "List of devices" | grep -v "^$"
-```
-
-设备检测结果:
-- 有设备 → 记录设备序列号和型号，Layer 5 可执行
-- 无设备但 adb 可用 → 记录 "无已连接设备"，Layer 5 跳过
-- adb 不可用 → 记录 "adb 未安装"，Layer 5 跳过
-
-### 步骤 4: 检测 Gradle 可用性
-
-```bash
-# 检查 gradlew 权限
-if [ -f "gradlew" ]; then
-  if [ ! -x "gradlew" ]; then
-    chmod +x gradlew
-  fi
-  ./gradlew --version 2>&1 | head -3
-  echo "GRADLE_READY"
-else
-  echo "GRADLE_NOT_FOUND"
-fi
-```
-
-如果 Gradle 不可用: 中断执行，提示用户检查项目配置。
-
-### 步骤 5: 检测 TDD 执行状态
-
-```bash
-# 定位 tasks.json
-MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+# TDD 状态
+MAIN_WORKTREE=$(git worktree list | head -1 | awk '{print $1}')
 TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
+# 读取 TDD 状态 → 设置 TDD_STATUS / TDD_ALL_COVERED / TDD_AVG_COVERAGE / COVERAGE_THRESHOLD(80或90)
 
-if [ -f "$TASKS_FILE" ]; then
-  echo "TASKS_JSON_FOUND: $TASKS_FILE"
-else
-  echo "NO_TASKS_JSON"
+# PRD 加载
+PRD_FILE=$(grep -l "^## PRD$" docs/plans/*.md 2>/dev/null | head -1)
+if [ -n "$PRD_FILE" ]; then
+  sed -n '/^## PRD$/,/^## [^#]/p' "$PRD_FILE" | head -n -1
+  # 解析 FR-N / AC-N / exclusions
 fi
 ```
 
-**TDD 状态分析:**
-
-读取 tasks.json，统计 TDD 执行情况:
-
-1. 遍历当前 plan 的所有任务
-2. 统计 tdd.executed = true 的任务数
-3. 统计 tdd.skipped = true 的任务数 (特别是业务任务)
-4. 计算 tdd.coverage_percent 的平均值
-5. 收集 tdd.boundary_categories_covered
-6. 读取 tdd.report_path
-
-**产出 TDD 状态摘要:**
-
-```
-=== TDD 状态 ===
-状态: 已检测 / 未检测
-TDD 已执行: N/M 任务
-TDD 跳过: N 任务
-TDD 覆盖率: 平均 XX% (范围: XX%-XX%)
-TDD 报告: <path> 或 "无"
-```
-
-**未检测到 TDD 记录时:**
-```
-=== TDD 状态 ===
-未检测到 TDD 执行记录 — QA 将执行完整验证 (含覆盖率门禁)
-```
-
-**TDD 被跳过的业务任务警告:**
-```
-⚠️ 检测到 N 个业务任务跳过了 TDD:
-  - Task 3: LoginViewModel (原因: user_override)
-  - Task 5: UserProfileScreen (原因: user_override)
-
-QA 将对这些任务加强验证:
-  - 强制执行 Layer 2.3 (单元测试)
-  - 覆盖率阈值提升至 90% (而非默认 80%)
-  - 执行完整的边界矩阵检查
-```
-
-根据检测结果设置以下变量供后续阶段使用:
-- `TDD_STATUS`: "detected" / "not_detected"
-- `TDD_ALL_COVERED`: "true" / "false" (所有业务任务 TDD 已执行且覆盖率 >= 80%)
-- `TDD_AVG_COVERAGE`: 平均覆盖率数字
-- `TDD_REPORT_PATH`: 报告文件路径
-- `TDD_SKIPPED_BUSINESS_TASKS`: 被跳过的业务任务数
-- `COVERAGE_THRESHOLD`: 80 (默认) 或 90 (有 TDD 被跳过的业务任务时)
-
-### 步骤 6: PRD 加载
-
-查找当前分支关联的 plan 文件:
-```bash
-# Find plan files
-ls docs/plans/*.md 2>/dev/null
-
-# Check if any plan file contains a PRD section
-grep -l "^## PRD$" docs/plans/*.md 2>/dev/null
-```
-
-若找到包含 PRD 的 plan 文件:
-1. 提取 PRD section
-2. 解析功能需求 (FR-N)、验收标准 (AC-N)、明确不做列表
-3. 存储为后续 Phase 的输入
-
-若未找到:
-- 输出 "[QA] 未找到 PRD，跳过需求验收。建议使用 /android-autoplan 生成含 PRD 的 plan。"
-- 后续 PRD 验证 Phase 自动跳过
-
-设置以下变量供后续阶段使用:
-- `PRD_LOADED`: "true" / "false"
-- `PRD_FILE_PATH`: PRD 所在的 plan 文件路径
-- `PRD_AC_LIST`: 解析出的验收标准列表 (AC-N)
-- `PRD_FR_LIST`: 解析出的功能需求列表 (FR-N)
-- `PRD_EXCLUSIONS`: 解析出的明确不做列表
-
----
-
-## Phase 1: 测试范围确定
-
-### 步骤 1: 分析变更范围
+## Phase 1: 测试范围
 
 ```bash
-# 获取当前分支相对于基准分支的变更文件列表
 CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null)
-
-# 获取变更统计
-git diff --stat "$BASE_BRANCH"...HEAD 2>/dev/null
-
-# 仅 Kotlin/Java 源码变更
 CODE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '\.(kt|java)$')
-
-# 资源文件变更
 RESOURCE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '\.(xml|png|webp|svg|jpg)$')
-
-# Gradle 配置变更
 GRADLE_CHANGES=$(echo "$CHANGED_FILES" | grep -E 'build\.gradle|settings\.gradle|gradle\.properties|libs\.versions\.toml')
-
-# Manifest 变更
-MANIFEST_CHANGES=$(echo "$CHANGED_FILES" | grep -E 'AndroidManifest\.xml')
 ```
 
-### 步骤 2: 确定受影响模块
-
-```bash
-# 从变更文件路径提取受影响的模块
-for file in $CHANGED_FILES; do
-  # 提取模块名 (第一级目录)
-  module=$(echo "$file" | cut -d'/' -f1)
-  echo "$module"
-done | sort -u
-```
-
-### 步骤 3: 查找关联的 Plan 文件
-
-```bash
-# 查找可能的 plan 文件
-PLAN_SLUG=$(echo "$CURRENT_BRANCH" | sed 's/plan\///' | sed 's/-/\-/g')
-find "$PROJECT_ROOT/docs/plans" -name "*.md" 2>/dev/null | head -5
-find "$PROJECT_ROOT/.claude" -name "tasks.json" 2>/dev/null | head -5
-```
-
-如果找到关联的 plan 文件或 `tasks.json`:
-- 读取 plan 中的功能描述和预期行为
-- 用作测试用例的参考依据
-
-### 步骤 4: 生成测试范围报告
-
-```
-=== 测试范围 ===
-模式:         完整 QA / 冒烟测试 / 回归测试
-分支:         plan/auth-login-flow
-基准:         main
-变更文件数:   23
-  源码:       15 (.kt)
-  资源:       5 (.xml, .png)
-  Gradle:     2 (.gradle.kts, .toml)
-  Manifest:   1
-受影响模块:   app, feature:login, core:common
-关联 Plan:    docs/plans/2026-04-10-auth.md
-```
-
-**smoke 模式限制:** 仅关注核心功能路径，跳过边缘场景和回归测试。
-**regression 模式扩展:** 额外包含基准分支上已有功能的关键路径验证。
-
----
+**smoke 模式:** 仅关注核心功能路径。
+**regression 模式:** 额外包含基准分支已有功能的关键路径验证。
 
 ## Phase 2: 分层测试
 
-使用 Agent 工具派发 subagent 执行各层测试。
-
-### Subagent 并发控制
-
-- Layer 1 (静态分析) 和 Layer 2 (构建+测试) 可并行执行
-- Layer 3 (性能基准测试) 依赖 Layer 2 的构建产出，串行执行
-- Layer 4 (无障碍检测) 与 Layer 3 可并行执行 (均无设备依赖)
-- Layer 5 (设备测试) 依赖 Layer 2 的构建产出 (APK)，串行执行
-- 最多同时运行 2 个 subagent
-
 ### Layer 1: 静态分析 (无需设备)
 
-**目标:** 在不编译的情况下发现代码层面的问题。
+| 检查项 | 检测 | 严重 |
+|--------|------|------|
+| 空指针风险 | `!!` 操作符 | 高 |
+| 空 catch 块 | `catch.*{ *}` | 中 |
+| TODO/FIXME | `TODO\|FIXME\|HACK` | 中 |
+| 硬编码字符串 | UI 代码中字符串字面量 | 中 |
+| 内存泄漏 | 匿名类持有 Activity | 高 |
+| 主线程 IO | `Dispatchers.Main` + http/retrofit | 高 |
+| 资源完整性 | R.drawable/R.string 存在性 | 高 |
+| Manifest 声明 | Activity/Service/Receiver 声明 | 高 |
+| 新增权限 | AndroidManifest.xml 中 uses-permission diff | 中 |
 
-**检查项目:**
-
-#### 1.1 代码模式检查
-
-扫描所有变更的 `.kt` / `.java` 文件:
-
-| 检查项 | 检测方式 | 严重程度 |
-|--------|----------|----------|
-| 空指针风险 | `!!` 操作符、未做 null check 的可空类型引用 | 高 |
-| 未处理的异常 | `catch` 块为空、`TODO` 标记、未处理的 `Result` | 中 |
-| 硬编码字符串 | 字符串字面量 (非 `@StringRes` 注解的) 在 UI 代码中 | 中 |
-| 硬编码尺寸 | 直接使用 `dp` 数值而非 `@DimenRes` | 低 |
-| 内存泄漏风险 | 匿名内部类持有 Activity/View 引用、未取消的协程 | 高 |
-| 线程问题 | 主线程 IO 操作、非主线程 UI 更新 | 高 |
-| 未使用的导入 | `import` 语句未在代码中使用 | 低 |
+### Layer 2: 构建+测试 (无需设备)
 
 ```bash
-# 空指针风险: !! 操作符
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -n '!!' "$f" 2>/dev/null || true
-  done
-fi
-
-# 空的 catch 块
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -n 'catch.*{ *}' "$f" 2>/dev/null || true
-  done
-fi
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -nA2 'catch' "$f" 2>/dev/null | grep '{ *}$' || true
-  done
-fi
-
-# TODO/FIXME 标记
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -rn 'TODO\|FIXME\|HACK\|XXX' "$f" 2>/dev/null || true
-  done
-fi
-
-# 硬编码字符串 (UI 层中)
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -n '"[^"]*"' "$f" 2>/dev/null | grep -v '@StringRes\|R\.string\|//\|Log\.\|TAG\|"$\|\.class' || true
-  done
-fi
-
-# 主线程网络调用
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -n 'Dispatchers\.Main' "$f" 2>/dev/null | grep -i 'http\|retrofit\|okhttp\|request\|api' || true
-  done
-fi
+# 严格串行: 构建→lint→测试
+./gradlew assembleDebug 2>&1           # 失败→停止
+./gradlew lintDebug 2>&1               # Error→阻塞, Warning→记录
+./gradlew testDebugUnitTest 2>&1       # 失败→修复循环(max 3轮)
 ```
 
-#### 1.2 资源完整性检查
+**TDD 条件执行:**
 
-```bash
-# 提取代码中引用的所有资源 ID
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'R\.\w+\.\w+' "$f" 2>/dev/null || true
-  done | sort -u
-fi
+| TDD 状态 | 行为 |
+|----------|------|
+| 全部已执行且≥80% | 跳过,复用TDD结果 |
+| 部分<80% | 执行,关注低覆盖率模块 |
+| 未检测 | 执行(完整验证) |
+| 业务任务被跳过 | 强制执行,阈值提升至90% |
 
-# 提取 XML 中引用的所有资源
-if [ -n "$RESOURCE_CHANGES" ]; then
-  echo "$RESOURCE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP '@\w+/[\w.]+' "$f" 2>/dev/null || true
-  done | sort -u
-fi
+**覆盖率门禁:**
 
-# 检查 drawable 引用是否存在
-if [ -n "$CODE_CHANGES" ]; then
-  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'R\.drawable\.\w+' "$f" 2>/dev/null || true
-  done | sed 's/R\.drawable\.//' | sort -u); do
-    find "$PROJECT_ROOT" -path "*/res/drawable*/$ref.*" 2>/dev/null | head -1 || echo "MISSING: drawable/$ref"
-  done
-fi
+| 指标 | 默认 | TDD跳过时 |
+|------|------|-----------|
+| 总体行覆盖率 | 80% | 90% |
+| 关键路径 | 90% | 95% |
+| 分支覆盖率 | 75% | 85% |
 
-# 检查 string 引用是否存在
-if [ -n "$CODE_CHANGES" ]; then
-  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'R\.string\.\w+' "$f" 2>/dev/null || true
-  done | sed 's/R\.string\.//' | sort -u); do
-    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/strings.xml 2>/dev/null || echo "MISSING: string/$ref"
-  done
-fi
+不达标→自动补测试(max 2轮)。
 
-# 检查 dimen 引用是否存在
-if [ -n "$CODE_CHANGES" ]; then
-  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'R\.dimen\.\w+' "$f" 2>/dev/null || true
-  done | sed 's/R\.dimen\.//' | sort -u); do
-    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/dimens.xml 2>/dev/null || echo "MISSING: dimen/$ref"
-  done
-fi
+### Layer 3: 性能基准
 
-# 检查 color 引用是否存在
-if [ -n "$CODE_CHANGES" ]; then
-  for ref in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'R\.color\.\w+' "$f" 2>/dev/null || true
-  done | sed 's/R\.color\.//' | sort -u); do
-    grep -rq "name=\"$ref\"" "$PROJECT_ROOT"/app/src/main/res/values*/colors.xml 2>/dev/null || echo "MISSING: color/$ref"
-  done
-fi
-```
-
-#### 1.3 Manifest 检查
-
-```bash
-# 提取变更代码中定义的 Activity 类
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -rn 'class.*Activity' "$f" 2>/dev/null || true
-  done | grep -v test
-fi
-
-# 检查这些 Activity 是否在 AndroidManifest.xml 中声明
-if [ -n "$CODE_CHANGES" ]; then
-  for activity_class in $(echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -ohP 'class (\w+\.)*\w+Activity' "$f" 2>/dev/null || true
-  done | sed 's/class //' | sort -u); do
-    # 提取简单类名或全限定名
-    simple_name=$(echo "$activity_class" | awk -F'.' '{print $NF}')
-    grep -rq "$simple_name\|$activity_class" "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null \
-      || echo "NOT_DECLARED: $activity_class"
-  done
-fi
-
-# 提取 Service / Receiver / Provider
-if [ -n "$CODE_CHANGES" ]; then
-  echo "$CODE_CHANGES" | while IFS= read -r f; do
-    [ -f "$f" ] && grep -rn 'class.*Service\b\|class.*Receiver\b\|class.*Provider\b' "$f" 2>/dev/null || true
-  done | grep -v test
-fi
-
-# 检查新增的权限是否合理
-git diff "$BASE_BRANCH"...HEAD -- "**/AndroidManifest.xml" 2>/dev/null | grep 'uses-permission'
-```
-
-#### 1.4 ProGuard / R8 检查
-
-```bash
-# 检查是否启用了 minification
-grep -rn 'minifyEnabled true\|isMinifyEnabled = true' "$PROJECT_ROOT/app" --include="*.gradle*" 2>/dev/null
-
-# 如果启用了 minification，检查新增类是否有 keep 规则
-if [ $? -eq 0 ]; then
-  PROGUARD_DIR=$(find "$PROJECT_ROOT/app" -path "*/proguard*" -type d 2>/dev/null | head -1)
-  echo "ProGuard 目录: $PROGUARD_DIR"
-  # 列出 ProGuard 规则文件
-  find "$PROGUARD_DIR" -name "*.pro" -o -name "*.rules" 2>/dev/null
-fi
-```
-
-**Layer 1 输出格式:**
-
-```
-=== Layer 1: 静态分析 ===
-
-问题总数: N
-
-🔴 阻塞 (N)
-  [L1-001] 空指针风险
-    文件: app/src/main/java/com/example/login/LoginViewModel.kt:45
-    描述: 对 user!!.email 使用了非空断言
-    建议: 使用安全调用 user?.email ?: return
-
-🟡 可用但有问题 (N)
-  [L1-002] 硬编码字符串
-    文件: app/src/main/java/com/example/login/LoginFragment.kt:32
-    描述: "登录" 应使用字符串资源
-    建议: 替换为 getString(R.string.login)
-
-🟢 通过 (N 项检查)
-  Manifest 声明: 3/3 Activity 已声明
-  资源引用: 所有 drawable/string/dimen 引用均存在
-  ProGuard: 未启用或规则已覆盖
-```
-
----
-
-### Layer 2: 构建与单元测试 (无需设备)
-
-**目标:** 确认代码可编译、lint 无严重问题、单元测试通过。
-
-**执行顺序:** 构建 → Lint → 单元测试 (严格串行，前一步失败不执行后一步)
-
-#### 2.1 Gradle 构建
-
-```bash
-echo "=== Gradle Build ==="
-./gradlew assembleDebug 2>&1
-BUILD_EXIT=$?
-```
-
-**构建成功:** 继续 2.2
-**构建失败:**
-- 提取错误信息 (最后 30 行)
-- 分析错误类型 (编译错误、依赖缺失、版本冲突)
-- 记录为 🔴 阻塞问题
-- 不继续后续测试
-
-#### 2.2 Lint 检查
-
-```bash
-echo "=== Lint 检查 ==="
-./gradlew lintDebug 2>&1
-LINT_EXIT=$?
-```
-
-**解析 lint 报告:**
-```bash
-# Lint HTML 报告路径
-LINT_REPORT=$(find "$PROJECT_ROOT/app/build/reports/lint-results-debug.html" 2>/dev/null | head -1)
-
-# 如果 HTML 报告存在，读取关键问题
-# Lint XML 报告
-LINT_XML=$(find "$PROJECT_ROOT/app/build/reports/lint-results-debug.xml" 2>/dev/null | head -1)
-
-# 提取严重问题 (Error 和 Warning)
-if [ -f "$LINT_XML" ]; then
-  grep -o 'severity="[^"]*"' "$LINT_XML" | sort | uniq -c
-  grep 'severity="Error"' "$LINT_XML" -A5 2>/dev/null | head -50
-  grep 'severity="Warning"' "$LINT_XML" -A5 2>/dev/null | head -50
-fi
-```
-
-**Lint 问题分类:**
-
-| Lint 级别 | 处理方式 |
-|-----------|----------|
-| Error (Fatal) | 🔴 阻塞，必须修复 |
-| Error | 🟡 应修复，不阻塞测试 |
-| Warning | 🟢 记录，建议后续处理 |
-| Information | 忽略 |
-
-#### 2.3 单元测试 (条件执行)
-
-**根据 TDD 状态决定是否执行。**
-
-```bash
-if [ "$TDD_ALL_COVERED" = "true" ]; then
-  echo "=== 单元测试 ==="
-  echo "跳过: TDD 已执行且覆盖率达标 (平均 ${TDD_AVG_COVERAGE}%)"
-  echo "来源: ${TDD_REPORT_PATH}"
-  TEST_EXIT=0
-elif [ "$TDD_STATUS" = "detected" ]; then
-  echo "=== 单元测试 ==="
-  echo "执行: TDD 已执行但部分任务覆盖率 < 80%，补充验证"
-  ./gradlew testDebugUnitTest 2>&1
-  TEST_EXIT=$?
-else
-  echo "=== 单元测试 ==="
-  echo "执行: 未检测到 TDD 记录，完整验证"
-  ./gradlew testDebugUnitTest 2>&1
-  TEST_EXIT=$?
-fi
-```
-
-**条件执行规则:**
-
-| TDD 状态 | Layer 2.3 行为 |
-|---------|---------------|
-| 所有业务任务 TDD 已执行 且 覆盖率 >= 80% | 跳过，复用 TDD 结果 |
-| TDD 已执行 但 部分任务覆盖率 < 80% | 执行，重点关注低覆盖率模块 |
-| TDD 未执行 (无 tasks.json) | 执行 (完整验证) |
-| 业务任务 TDD 被用户跳过 | 强制执行，覆盖率阈值提升至 90% |
-
-**解析测试结果:**
-```bash
-# 测试报告路径
-TEST_REPORT=$(find "$PROJECT_ROOT/app/build/reports/tests/testDebugUnitTest" -name "index.html" 2>/dev/null | head -1)
-
-# 提取测试统计
-./gradlew testDebugUnitTest 2>&1 | grep -E "tests|failures|passed|skipped"
-
-# 失败测试详情
-TEST_XML=$(find "$PROJECT_ROOT/app/build/test-results/testDebugUnitTest" -name "*.xml" 2>/dev/null | head -1)
-if [ -f "$TEST_XML" ]; then
-  grep 'testcase' "$TEST_XML" | grep 'failure' 2>/dev/null
-fi
-```
-
-**测试失败分析:**
-- 提取失败测试的类名、方法名、错误消息
-- 判断是否与本次变更相关 (通过变更文件匹配)
-- 与本次变更无关的测试失败 → 标记为 "既有失败"
-- 与本次变更相关的测试失败 → 🔴 阻塞
-
-#### 2.4 覆盖率门禁
-
-**无论 Layer 2.3 是否跳过，都执行覆盖率验证。**
-
-```bash
-# 覆盖率来源判断
-if [ "$TDD_ALL_COVERED" = "true" ] && [ -n "$TDD_REPORT_PATH" ] && [ -f "$TDD_REPORT_PATH" ]; then
-  echo "=== 覆盖率门禁 ==="
-  echo "来源: TDD 报告 ($TDD_REPORT_PATH)"
-  echo "总体覆盖率: ${TDD_AVG_COVERAGE}% (阈值: ${COVERAGE_THRESHOLD}%)"
-  COVERAGE_INT=$(printf "%.0f" "$TDD_AVG_COVERAGE" 2>/dev/null || echo "$TDD_AVG_COVERAGE")
-  echo "结果: $(if [ -n "$COVERAGE_INT" ] && [ "$COVERAGE_INT" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "✅ 达标"; else echo "❌ 不达标"; fi)"
-  COVERAGE_GATE_PASSED=$(if [ -n "$COVERAGE_INT" ] && [ "$COVERAGE_INT" -ge "$COVERAGE_THRESHOLD" ] 2>/dev/null; then echo "true"; else echo "false"; fi)
-else
-  echo "=== 覆盖率门禁 ==="
-  
-  # 自己运行覆盖率
-  ./gradlew test<Variant>UnitTest 2>&1 | tail -20
-  
-  # 查找 JaCoCo 报告
-  JACOCO_XML=$(find "$PROJECT_ROOT" -path "*/reports/jacoco/*/*.xml" -type f 2>/dev/null | head -1)
-  
-  if [ -f "$JACOCO_XML" ]; then
-    echo "来源: JaCoCo XML 报告"
-    echo "报告路径: $JACOCO_XML"
-  else
-    echo "来源: Gradle 测试输出"
-    echo "⚠️ 未找到 JaCoCo 报告，覆盖率数据可能不完整"
-  fi
-  
-  COVERAGE_GATE_PASSED="unknown"
-fi
-```
-
-**覆盖率门禁规则:**
-
-| 指标 | 默认阈值 | TDD 被跳过时阈值 | 不达标处理 |
-|------|---------|-------------------|-----------|
-| 总体行覆盖率 | 80% | 90% | 触发自动补测试 |
-| 关键路径覆盖率 | 90% | 95% | 触发自动补测试 |
-| 分支覆盖率 | 75% | 85% | 记录为 🟡 建议 |
-
-**关键路径定义:** 文件名匹配 `*ViewModel.kt`、`*Repository.kt`、`*RepositoryImpl.kt`、`*UseCase.kt`
-
-**覆盖率不达标时自动补测试:**
-1. 识别低于阈值的文件
-2. 读取源码，分析未覆盖的分支
-3. 生成针对性测试代码
-4. 运行测试验证
-5. 重新检查覆盖率 (最多 2 轮)
-
-**覆盖率报告格式:**
-
-```
-=== 覆盖率门禁 ===
-来源: TDD 报告 / QA 执行
-
-总体覆盖率: XX% ✅/❌ (阈值: 80%)
-分支覆盖率: XX% ✅/❌ (阈值: 75%)
-关键路径:   XX% ✅/❌ (阈值: 90%)
-
-文件级详情:
-  ✅ XxxViewModel.kt      XX%
-  ✅ XxxRepository.kt     XX%
-  🟡 XxxScreen.kt         XX% (建议: 补充测试)
-  ❌ XxxMapper.kt         XX% → 触发自动补测试
-```
-
-**JaCoCo 未配置时:**
-```
-⚠️ JaCoCo 未配置，无法精确测量覆盖率。
-建议: 在 build.gradle.kts 中添加 JaCoCo 插件。
-使用测试通过率作为替代指标: N/N passed ✅
-```
-
-**Layer 2 输出格式:**
-
-```
-=== Layer 2: 构建与单元测试 ===
-
-构建:     ✅ 通过 (耗时 45s)
-Lint:     🟡 2 Warning, 0 Error
-单元测试: ✅ 42 passed, 0 failed (耗时 12s)
-覆盖率:   XX% (总体) / XX% (关键路径) ✅/❌
-TDD:      N/M 任务已执行 / N 跳过
-
-Lint 问题:
-  [L2-001] Warning: "UnusedResource" - app/src/main/res/values/strings.xml:15
-    描述: 未使用的字符串资源 R.string.unused_text
-  [L2-002] Warning: "IconMissingDensityFolder" - app/src/main/res/
-
-测试详情:
-  模块: app (42 tests)
-  模块: feature:login (8 tests)
-  模块: core:common (15 tests)
-```
-
----
-
-### Layer 3: 性能基准测试
-
-**目标:** 评估构建性能、运行时性能和 Compose 性能，建立性能基线。
-
-**前置条件:** Layer 2 构建成功
-
-#### 3A: 构建性能 (无需设备)
-
-```bash
-# Build timing
-./gradlew assembleDebug --profile 2>&1 | tail -20
-
-# Build cache effectiveness
-./gradlew assembleDebug --profile 2>&1 | grep -E "cache hit|cache miss" || true
-
-# APK size check
-ls -la app/build/outputs/apk/debug/*.apk 2>/dev/null && du -h app/build/outputs/apk/debug/*.apk
-```
-
-**检查基准:**
-
-| 指标 | 基准 | 级别 |
+| 检查 | 基准 | 级别 |
 |------|------|------|
-| 构建耗时 (冷构建) | < 120s | WARN |
-| Debug APK 大小 | < 50MB | WARN |
-| 构建缓存命中率 | > 50% | INFO |
+| 构建耗时(冷) | <120s | WARN |
+| Debug APK | <50MB | WARN |
+| 冷启动 | <1000ms | WARN |
+| 内存 | <200MB | WARN |
+| StrictMode | 0 violations | WARN |
 
-#### 3B: 运行时性能 (需要设备，可选)
-
-```bash
-# 冷启动时间
-adb shell am start-activity -W -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1 | grep "TotalTime"
-
-# 内存占用
-adb shell dumpsys meminfo "$PACKAGE_NAME" 2>/dev/null | head -20
-
-# StrictMode 违规检查
-adb logcat -d | grep -i "StrictMode" | tail -20
-```
-
-**检查基准:**
-
-| 指标 | 基准 | 级别 |
-|------|------|------|
-| 冷启动时间 | < 1000ms | WARN |
-| 内存占用 | < 200MB | WARN |
-| StrictMode violations | 0 | WARN |
-
-**无设备时:** 跳过 3B，输出 "SKIP (无设备)"
-
-#### 3C: Compose 性能 (仅 Compose 项目)
-
-**Compose 检测:** Phase 0 步骤 2 中已检测到 `@Composable` 注解时执行。
-
-```bash
-# 检查 remember 和 LaunchedEffect 使用
-grep -r "remember {" app/src/main --include="*.kt" -l | head -10
-grep -r "LaunchedEffect" app/src/main --include="*.kt" -l | head -10
-
-# 检查 @Stable / @Immutable 注解
-grep -r "@Stable\|@Immutable" app/src/main --include="*.kt" | head -10
-
-# 检查 LazyColumn/LazyRow 中 key 参数使用
-grep -r "LazyColumn\|LazyRow" app/src/main --include="*.kt" -A 10 | grep "key\s*=" | head -10
-
-# 检查 collectAsState 生命周期
-grep -r "collectAsState" app/src/main --include="*.kt" | head -10
-```
-
-**静态检查项:**
-
-| 检查项 | 检测方式 | 建议 |
-|--------|----------|------|
-| LazyColumn/LazyRow 缺少 key | items 块中无 `key =` 参数 | 添加 key 提升性能 |
-| Composable 接收的 data class 缺少 @Stable | 参数类型为 data class 但未标注 | 添加 @Stable 或 @Immutable |
-| collectAsState 无生命周期限定 | 未在 LaunchedEffect 或 DisposableEffect 中使用 | 使用 lifecycleOwner 限定 |
-
-**非 Compose 项目:** 输出 "SKIP (未启用 Compose)"
-
-**Layer 3 输出格式:**
-
-```
-[QA Phase 3] 性能基准测试
-  3A 构建性能: PASS / WARN
-    - 构建耗时: 45s (基准: <120s)
-    - APK 大小: 12MB (基准: <50MB)
-    - 缓存命中率: 72%
-  3B 运行时性能: SKIP (无设备) / PASS / WARN
-    - 冷启动: 450ms (基准: <1000ms)
-    - 内存占用: 85MB (基准: <200MB)
-    - StrictMode: 0 violations
-  3C Compose 性能: PASS / WARN / SKIP (未启用 Compose)
-    - LazyColumn key 使用: 8/8 OK
-    - @Stable 注解: 3/5 建议
-    - 重组风险: 2 处建议优化
-```
-
----
+**3C Compose (仅 Compose 项目):**
+- LazyColumn/LazyRow 缺少 key → 建议
+- @Stable/@Immutable 缺失 → 建议
+- collectAsState 无限定 → 建议
 
 ### Layer 4: 无障碍检测
 
-**目标:** 静态检测代码中的无障碍 (a11y) 问题，确保应用对残障用户友好。
-
-**无需设备，无需构建。**
-
-#### 4A: 静态分析
-
-```bash
-# ImageView/Icon 缺少 contentDescription
-grep -r "ImageView\|Image(" app/src/main --include="*.xml" -A 2 | grep -v "contentDescription" | head -20
-
-# 可点击元素缺少 contentDescription
-grep -r 'android:clickable="true"' app/src/main --include="*.xml" -B 2 -A 2 | grep -v "contentDescription" | head -20
-
-# 触摸目标尺寸检查 (48dp 最低标准)
-grep -r "minHeight\|minWidth" app/src/main --include="*.xml" | head -10
-
-# 硬编码颜色 (对比度风险)
-grep -r "@android:color\|#[0-9a-fA-F]\{6\}" app/src/main/res/values/colors.xml 2>/dev/null | head -10
-
-# 文字大小单位检查 (应使用 sp)
-grep -r "android:textSize" app/src/main --include="*.xml" | grep -v "sp" | head -10
-```
-
-**检查基准:**
-
-| 检查项 | 基准 | 级别 |
-|--------|------|------|
-| ImageView contentDescription | 100% 覆盖 | WARN |
-| 可点击元素 contentDescription | 100% 覆盖 | WARN |
-| 触摸目标尺寸 | >= 48dp | INFO |
-| 文字大小单位 | 全部使用 sp | WARN |
-
-#### 4B: Compose 无障碍 (仅 Compose 项目)
-
-**Compose 检测:** Phase 0 步骤 2 中已检测到 `@Composable` 注解时执行。
-
-```bash
-# 检查 semantics 使用
-grep -r "semantics\|contentDescription\|stateDescription" app/src/main --include="*.kt" | head -20
-
-# 检查 Icon 缺少 contentDescription
-grep -r "Icon(" app/src/main --include="*.kt" -A 1 | grep -v "contentDescription" | head -10
-```
-
-**检查基准:**
-
-| 检查项 | 基准 | 级别 |
-|--------|------|------|
-| Icon contentDescription | 100% 覆盖 | WARN |
-| 交互元素 semantics | 有 semantics 块 | INFO |
-
-**非 Compose 项目:** 输出 "SKIP (未启用 Compose)"
-
-#### 4C: Manifest 检查
-
-```bash
-# 无障碍事件源声明
-grep -r "accessibilityEventSource\|importantForAccessibility" app/src/main --include="*.xml" | head -5
-
-# 自定义触摸处理器 (需要无障碍支持)
-grep -r "setOnTouchListener\|setOnClickListener" app/src/main --include="*.kt" | head -10
-```
-
-**检查基准:**
-
-| 检查项 | 基准 | 级别 |
-|--------|------|------|
-| 自定义触摸处理器 | 应有对应 contentDescription 或 semantics | INFO |
-
-**Layer 4 输出格式:**
-
-```
-[QA Phase 4] 无障碍检测
-  4A 静态分析:
-    - ImageView contentDescription: 12/15 OK, 3 missing
-    - 可点击元素 contentDescription: 8/10 OK, 2 missing
-    - 触摸目标尺寸: 5/8 符合 48dp 最低标准
-    - 硬编码颜色: 3 处 (建议提取到 colors.xml)
-    - 文字大小单位: 全部使用 sp
-  4B Compose 无障碍: PASS / WARN / SKIP
-    - Icon contentDescription: 6/7 OK
-    - semantics 使用: 4 处建议
-  4C Manifest 检查: PASS
-```
-
----
+| 检查 | 基准 |
+|------|------|
+| ImageView contentDescription | 100% |
+| 可点击元素 contentDescription | 100% |
+| 触摸目标 | ≥48dp |
+| 文字大小单位 | 全部 sp |
 
 ### Layer 5: 设备测试 (需要 adb)
 
-**前置条件:** Layer 2 构建成功 (需要 APK)
-
-**设备检测:**
 ```bash
-# 检查是否有可用设备
-DEVICES=$(adb devices 2>/dev/null | grep -v "List of devices" | grep -v "^$" | grep -v "unauthorized")
-DEVICE_COUNT=$(echo "$DEVICES" | wc -l | tr -d ' ')
-```
-
-**无设备:**
-```
-=== Layer 5: 设备测试 ===
-状态: 跳过 (无可用设备/模拟器)
-原因: adb 未安装 / 无已连接设备 / 设备未授权
-建议: 连接设备或启动模拟器后重新运行 /android-qa
-```
-
-**有设备:**
-
-#### 5.1 安装 APK
-
-```bash
-# 确定 APK 路径
-APK_PATH=$(find "$PROJECT_ROOT/app/build/outputs/apk/debug" -name "*.apk" 2>/dev/null | head -1)
-
-if [ -z "$APK_PATH" ]; then
-  echo "APK_NOT_FOUND"
-  exit 1
+DEVICES=$(adb devices 2>/dev/null | grep -v "List" | grep -v "^$" | grep -v "unauthorized")
+if [ -n "$DEVICES" ]; then
+  APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+  adb install -r "$APK" 2>&1
+  adb shell am start -n "$PACKAGE/$LAUNCH_ACTIVITY" 2>&1
+  sleep 3
+  # 崩溃检测
+  adb logcat -d -t 50 | grep -i "FATAL EXCEPTION\|AndroidRuntime\|CRASH"
+  # 截图
+  adb shell screencap -p /sdcard/qa.png && adb pull /sdcard/qa.png
+  # 性能
+  adb shell am start -W -n "$PACKAGE/$LAUNCH_ACTIVITY" | grep TotalTime
+  adb shell dumpsys meminfo "$PACKAGE" | grep TOTAL
 fi
-
-# 安装到设备
-adb install -r "$APK_PATH" 2>&1
-INSTALL_EXIT=$?
 ```
 
-**安装失败:** 记录为 🔴 阻塞，输出错误信息 (签名冲突、版本降级、空间不足)
-
-#### 5.2 启动应用
-
-```bash
-# 获取包名
-PACKAGE_NAME=$(grep -r 'applicationId\|namespace' "$PROJECT_ROOT/app/build.gradle" "$PROJECT_ROOT/app/build.gradle.kts" 2>/dev/null | head -1 | sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1)
-
-# 获取启动 Activity
-LAUNCH_ACTIVITY=$(grep -A5 'android.intent.category.LAUNCHER' "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" 2>/dev/null | grep 'android:name' | head -1 | sed -n 's/.*"\([^"]*\)".*/\1/p')
-
-# 启动应用
-adb shell am start -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1
-```
-
-#### 5.3 关键 UI 测试
-
-根据 Phase 1 确定的测试范围，执行以下检查:
-
-```bash
-# 等待应用启动
-sleep 3
-
-# 检查应用是否崩溃
-CRASH_LOG=$(adb logcat -d -t 50 | grep -i "FATAL EXCEPTION\|AndroidRuntime\|CRASH" | tail -10)
-
-# 如果有崩溃
-if [ -n "$CRASH_LOG" ]; then
-  echo "CRASH_DETECTED"
-  echo "$CRASH_LOG"
-fi
-
-# 截取当前屏幕 (用于报告)
-adb shell screencap -p /sdcard/qa_screenshot.png
-adb pull /sdcard/qa_screenshot.png "$PROJECT_ROOT/docs/reviews/screenshots/" 2>/dev/null
-```
-
-**基于 adb 的功能验证:**
-
-```bash
-# 模拟点击操作 (根据测试范围中的页面/流程)
-# 示例: 登录流程
-# adb shell input tap <x> <y>  -- 点击输入框
-# adb shell input text "test@example.com"  -- 输入文本
-# adb shell input tap <x> <y>  -- 点击登录按钮
-
-# 检查页面跳转
-adb shell dumpsys activity activities | grep "mResumedActivity"
-
-# 检查 Toast 消息
-adb logcat -d | grep -i "toast\|snackbar" | tail -5
-
-# 检查网络请求 (如有)
-adb logcat -d | grep -i "okhttp\|retrofit\|http" | tail -10
-```
-
-**注意:** 具体的 adb 操作命令取决于 Phase 1 确定的测试范围。
-根据 plan 文件和变更文件推断出需要验证的关键用户流程，
-生成对应的 adb 命令序列。
-
-#### 5.4 性能基础检查
-
-```bash
-# 启动时间
-adb shell am start -W -n "$PACKAGE_NAME/$LAUNCH_ACTIVITY" 2>&1 | grep "TotalTime"
-
-# 内存占用
-adb shell dumpsys meminfo "$PACKAGE_NAME" | grep "TOTAL" | head -3
-
-# ANR 检查
-adb logcat -d | grep -i "ANR" | tail -5
-```
-
-**Layer 5 输出格式:**
-
-```
-=== Layer 5: 设备测试 ===
-设备:   Pixel 6 (emulator-5554)
-安装:   ✅ 成功
-启动:   ✅ 无崩溃
-启动时间: 320ms (冷启动)
-内存:   85MB (TOTAL PSS)
-
-功能验证:
-  ✅ 应用正常启动
-  ✅ 登录页面加载
-  ✅ 输入框可交互
-  ❌ 登录按钮点击后无响应 (ANR 3s)
-
-性能:
-  ✅ 启动时间 < 500ms
-  ✅ 内存 < 150MB
-  ✅ 无 ANR
-```
-
----
+无设备→跳过,不阻塞。
 
 ## Phase 3: PRD 验收
 
-若 Phase 0 未加载 PRD (`PRD_LOADED` != "true")，跳过此 Phase。
+若 PRD_LOADED != true → 跳过。
 
-对每条验收标准 (AC-N):
+对每条 AC-N:
+- ✓ PASS: 测试覆盖 + 功能完整
+- ⚠ PARTIAL: 功能存在但测试不足/不完整
+- ✗ FAIL: 无功能代码或不满足
+- ⊘ SKIP: 依赖外部条件无法验证
 
-### Step 1: 自动验证
-
-```bash
-# 检查相关测试是否覆盖该 AC
-grep -r "AC-N\|<AC关键词>" app/src/test --include="*.kt" -l 2>/dev/null
-
-# 检查相关功能代码是否实现
-grep -r "<FR关键词>" app/src/main --include="*.kt" -l 2>/dev/null
-```
-
-AC 关键词匹配采用灵活策略: 对 AC 描述中的核心功能词汇进行子串匹配，而非精确匹配。
-
-### Step 2: 逐条判定
-
-对每条 AC:
-- ✓ PASS: 有测试覆盖 + 功能代码存在 + 测试通过
-- ⚠ PARTIAL: 功能代码存在但测试不足，或实现不完整
-- ✗ FAIL: 无功能代码或功能代码明显不满足要求
-- ⊘ SKIP: 依赖外部条件（如需真机网络），当前环境无法验证
-
-### Step 3: 明确不做验证
-
-检查"明确不做"列表中的项是否真的没有被实现:
-```bash
-# 对每个排除项，检查是否有相关代码
-grep -r "<排除项关键词>" app/src/main --include="*.kt" 2>/dev/null
-```
-
-若有代码实现排除项 → 标记为 ⚠ 范围蔓延风险
-
-### Step 4: 输出 PRD 验收报告
-
-```
-[QA] PRD 验收报告
-
-需求覆盖: 8/10 通过, 1 部分实现, 1 未实现
-非功能需求: 2/3 通过, 1 无法验证
-明确不做: 3/3 未实现 ✓ (无范围蔓延)
-
-详情:
-✓ AC-1 [FR-1]: 用户登录 — 测试覆盖 ✓ 功能完整
-✓ AC-2 [FR-2]: 错误提示 — 测试覆盖 ✓ 功能完整
-⚠ AC-3 [FR-2]: 错误分类 — 功能代码存在但只显示通用错误，未区分类型
-✗ AC-5 [FR-3]: 记住我 — 无功能代码
-⊘ AC-7 [NFR-1]: 响应时间 <500ms — 需要真实网络环境验证
-```
-
-### Step 5: 总结建议
-
-- 若有 ✗ → 建议补充实现或创建新 plan
-- 若有 ⚠ → 列出需要完善的具体项
-- 若有 ⊘ → 列出需要手动验证的项
-- 全部 ✓ → "PRD 验收通过"
-
----
+检查"明确不做"列表→若有代码实现→⚠ 范围蔓延风险。
 
 ## Phase 4: Bug 报告
 
-### 步骤 1: 汇总所有层的结果
+写入 `docs/reviews/<branch>-qa-report.md`
 
-合并 Layer 1、Layer 2、Layer 3、Layer 4、Layer 5、Phase 3 (PRD 验收) 的发现，按严重程度分类。
-
-**严重程度定义:**
-
-| 级别 | 符号 | 定义 | 处理要求 |
-|------|------|------|----------|
-| 阻塞 | 🔴 | Crash、功能不可用、编译失败 | 必须修复 |
-| 严重 | 🟠 | 主要功能异常、数据丢失风险 | 强烈建议修复 |
-| 一般 | 🟡 | 可用但有问题、UX 受影响 | 建议修复 |
-| 提示 | 🟢 | 代码质量、最佳实践、优化建议 | 后续处理 |
-
-> 与其他 skill 保持一致的严重程度映射:
-> 🔴 red/BLOCKER → [BLOCKER] 必须修复
-> 🟠 orange/SEVERE → [WARNING] 建议修复
-> 🟡 yellow/MODERATE → [INFO] 建议优化
-> 🟢 green/TIP → [TIP] 可选改进
-
-### 步骤 2: 生成 Bug 报告
-
-写入 `docs/reviews/<branch>-qa-report.md`:
-
-```markdown
-# QA 报告: <branch>
-
-> 生成于 <YYYY-MM-DD HH:mm> | android-qa
-> 基准分支: <base-branch>
-> 测试模式: 完整 QA / 冒烟测试 / 回归测试
-> 设备: <设备信息 或 "无设备">
-
-## 摘要
-
-| 指标 | 结果 |
-|------|------|
-| 变更文件数 | N |
-| 🔴 阻塞 | N |
-| 🟠 严重 | N |
-| 🟡 一般 | N |
-| 🟢 提示 | N |
-| 构建状态 | ✅ / ❌ |
-| 单元测试 | N passed / N failed |
-| 设备测试 | ✅ / ❌ / 跳过 |
-| 性能基准 | PASS / WARN / SKIP |
-| 无障碍检测 | PASS / WARN / SKIP |
-
-## TDD 执行摘要
-
-| 指标 | 结果 |
-|------|------|
-| TDD 状态 | 已检测 / 未检测 |
-| TDD 任务数 | N/M |
-| TDD 平均覆盖率 | XX% |
-| TDD 跳过任务 | N (原因列表) |
-| QA 复用 TDD 结果 | 是/否 |
-
-## 覆盖率门禁
-
-| 指标 | 结果 | 阈值 | 状态 |
+| 级别 | 符号 | 定义 | 处理 |
 |------|------|------|------|
-| 总体行覆盖率 | XX% | 80% | ✅/❌ |
-| 分支覆盖率 | XX% | 75% | ✅/❌ |
-| 关键路径覆盖率 | XX% | 90% | ✅/❌ |
+| 阻塞 | 🔴 | Crash/功能不可用/编译失败 | 必须修复 |
+| 严重 | 🟠 | 主要功能异常/数据丢失 | 强烈建议 |
+| 一般 | 🟡 | 可用但有问题/UX受影响 | 建议修复 |
+| 提示 | 🟢 | 代码质量/最佳实践 | 后续处理 |
 
-## PRD 验收
-
-> 仅当 Phase 0 加载了 PRD 时显示此章节
-
-| 指标 | 结果 |
-|------|------|
-| PRD 来源 | <plan 文件路径> 或 "未找到 PRD" |
-| 需求覆盖 | N/M 通过, N 部分实现, N 未实现 |
-| 非功能需求 | N/M 通过, N 无法验证 |
-| 明确不做 | N/N 未实现 (无范围蔓延) / N 范围蔓延 |
-
-### 验收详情
-
-✓ AC-1 [FR-1]: <AC 描述> — 测试覆盖 ✓ 功能完整
-⚠ AC-3 [FR-2]: <AC 描述> — <部分实现原因>
-✗ AC-5 [FR-3]: <AC 描述> — <未实现原因>
-⊘ AC-7 [NFR-1]: <AC 描述> — <无法验证原因>
-
-### 范围蔓延风险
-
-(如有排除项被实现，列出具体项和文件位置)
-
-## Bug 列表
-
-### 🔴 阻塞
-
-#### BUG-001: <标题>
-- **描述:** <问题描述>
-- **严重程度:** 🔴 阻塞
-- **来源:** Layer 1 静态分析 / Layer 2 构建 / Layer 3 性能 / Layer 4 无障碍 / Layer 5 设备
-- **文件:** `<文件路径>:<行号>`
-- **复现步骤:**
-  1. <步骤 1>
-  2. <步骤 2>
-  3. <预期结果> → <实际结果>
-- **建议修复:**
-  ```<语言>
-  <修复代码示例>
-  ```
-
-### 🟠 严重
-
-(同上格式)
-
-### 🟡 一般
-
-(同上格式)
-
-### 🟢 提示
-
-#### TIP-001: <标题>
-- **描述:** <问题描述>
-- **来源:** Layer 1 / Layer 2 / Layer 3 / Layer 4
-- **文件:** `<文件路径>:<行号>`
-
-## 测试详情
-
-### Layer 1: 静态分析
-(静态分析详细结果)
-
-### Layer 2: 构建与单元测试
-(构建和测试详细结果)
-
-### Layer 3: 性能基准测试
-(性能基准测试详细结果)
-
-### Layer 4: 无障碍检测
-(无障碍检测详细结果)
-
-### Layer 5: 设备测试
-(设备测试详细结果，含截图路径)
-
-### PRD 验收
-(PRD 验收详细结果，仅当 PRD 已加载时显示)
-
-## 修复建议优先级
-
-1. BUG-001: <标题> — <预估工作量: 小/中/大>
-2. BUG-002: <标题> — <预估工作量: 小/中/大>
-3. ...
-```
-
-### 步骤 3: 展示报告摘要
-
-在终端输出:
-
-```
-╔═══════════════════════════════════════════════════════════╗
-║                    QA 报告摘要                           ║
-╠═══════════════════════════════════════════════════════════╣
-║  分支: plan/auth-login-flow                              ║
-║  基准: main                                             ║
-║  模式: 完整 QA                                          ║
-║                                                         ║
-║  🔴 阻塞: 1   🟠 严重: 0   🟡 一般: 2   🟢 提示: 3    ║
-║                                                         ║
-║  构建: ✅     单元测试: ✅ (42/42)    设备: ✅          ║
-║  性能: ✅     无障碍: ⚠️ 2 warnings                       ║
-║  PRD: ✅ 8/10 通过 / ⚠️ 1 部分实现 / ✗ 1 未实现          ║
-║                                                         ║
-║  完整报告: docs/reviews/plan-auth-login-flow-qa-report.md║
-╚═══════════════════════════════════════════════════════════╝
-```
-
----
+报告格式参见 REFERENCE.md。
 
 ## Phase 5: 修复循环
 
-> **参考:** 详见 `REFERENCE.md` — Phase 5 修复循环的完整步骤: 问题分类、自动修复范围、复杂问题处理、循环控制 (最多 3 轮)、修复提交。当 Phase 4 发现 bug 需要修复时 Read 此文件。
-
----
+详见 `REFERENCE.md` — Phase 5 修复循环。
 
 ## Capture Learnings
 
-> **参考:** 详见 `REFERENCE.md` — Capture Learnings 部分: QA 完成后如何将典型 bug 模式和测试配置问题记录到学习系统。当 QA 发现值得记录的 bug 模式时 Read 此文件。
+详见 `REFERENCE.md` — Capture Learnings。
 
----
+## 异常处理
 
-## 产出
+详见 `REFERENCE.md` — 异常情况处理表。
 
-### 产出物 1: Bug 报告
+## 与其他 Skill 衔接
 
-- 路径: `docs/reviews/<branch>-qa-report.md`
-- 内容: 完整的 QA 报告，包含所有问题、复现步骤、修复建议
-
-### 产出物 2: 修复 Commit (如有)
-
-- 列出所有修复 commit 的 hash
-- 每个 commit 对应修复的问题编号
-
-### 产出物 3: 截图 (如有设备)
-
-- 路径: `docs/reviews/screenshots/`
-- 内容: 测试过程中的屏幕截图
-
----
-
-## 异常情况处理
-
-> **参考:** 详见 `REFERENCE.md` — 异常情况处理表: 15 种边界场景的处理方式 (非 git 仓库、非 Android 项目、Gradle 不可用、构建失败、设备未授权、签名冲突等)。遇到异常中断或非预期行为时 Read 此文件。
-
----
-
-## 与其他 Skill 的衔接
-
-> **参考:** 详见 `REFERENCE.md` — 与其他 Skill 的衔接: 上游 (android-worktree-runner)、下游 (android-investigate) 的调用方式，以及与其他 skill 的关系表。当需要跨 skill 协作时 Read 此文件。
-
----
-
-## 文件结构
-
-> **参考:** 详见 `REFERENCE.md` — 文件结构: 本 skill 的产出文件路径 (bug 报告、截图目录等)。当需要确认产出物位置时 Read 此文件。
+详见 `REFERENCE.md` — 与其他 Skill 的衔接。
