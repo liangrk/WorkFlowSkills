@@ -12,13 +12,12 @@ description: |
 ## Phase 1: 环境检查
 
 ```bash
-# 检查 ADB 和设备
 adb version >/dev/null 2>&1 && echo "ADB: OK" || echo "ADB: MISSING"
 _DEVICE=$(adb devices 2>/dev/null | grep -E "device$" | head -1 | awk '{print $1}')
 [ -n "$_DEVICE" ] && echo "DEVICE: $_DEVICE" || echo "DEVICE: NONE"
 ```
 
-如果 ADB 或设备缺失,提示用户安装/连接后 STOP。
+如 ADB/设备缺失,提示用户后 STOP。
 
 ## Phase 2: 执行 Dump
 
@@ -30,9 +29,7 @@ _PACKAGE=$(echo "$_FOREGROUND" | grep -oP 'com\.[a-zA-Z0-9_.]+/' | head -1 | cut
 [ -n "$_PACKAGE" ] && echo "DETECTED: $_PACKAGE" || echo "DETECTED: NONE"
 ```
 
-询问用户: "Dump 哪个 App?"
-- A) $_PACKAGE (自动检测)
-- B) 手动输入包名
+询问用户确认包名。
 
 ### 2.2 一键 Dump
 
@@ -47,15 +44,10 @@ python scripts/dump_android_ui.py --package $_PACKAGE --output "$_DUMP_DIR"
 ```
 ✅ DUMP COMPLETE
 📁 $_DUMP_DIR/
-📊 文件:
-   - ui_hierarchy.xml (原始数据)
-   - screenshot.png (截图)
-   - analysis.json (分析)
-   - tree_view.html (交互式可视化)
-   - report.txt (报告)
+📊 文件: ui_hierarchy.xml, screenshot.png, analysis.json, tree_view.html, report.txt
 ```
 
-自动打开 tree_view.html 到浏览器。
+根据 analysis.json 和 report.txt 进行 UI 分析。
 
 ## Phase 4: 快速分析
 
@@ -74,23 +66,10 @@ for id in data['resource_ids'][:10]: print(f'  - {id}')
 
 ## 错误处理
 
-- **ADB 缺失**: 指引安装 Android SDK Platform-Tools
-- **无设备**: 提示连接或启动模拟器
-- **Dump 失败**: 自动尝试备用方法 (dumpsys activity)
-- **不可调试**: 提示添加 android:debuggable="true"
-
-## 使用场景
-
-1. **UI 测试** - 获取元素 ID 写自动化测试
-2. **UI 审查** - 检查布局和资源 ID 命名
-3. **竞品分析** - 分析其他 App UI 结构
-4. **无障碍检查** - 检测 content-desc
-
-## Telemetry
-
-```bash
-echo '{"skill":"android-dump","package":"'$_PACKAGE'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-```
+- ADB 缺失 → 指引安装
+- 无设备 → 提示连接/启动模拟器
+- Dump 失败 → 尝试备用方法 (dumpsys activity)
+- 不可调试 → 提示添加 debuggable
 
 ## 与其他 Skill 的衔接
 
@@ -98,3 +77,10 @@ echo '{"skill":"android-dump","package":"'$_PACKAGE'","ts":"'$(date -u +%Y-%m-%d
 |-----------|---------|---------|
 | android-design-review | UI 层次结构 + 元素列表 (`analysis.json`) | 涉及 UI 设计还原时 |
 | android-qa | UI 元素列表用于功能验证参考 | QA 测试阶段 |
+| android-worktree-runner | Dump 验证 (PRD 包含 UI 验收标准时) | worktree-runner 执行阶段 |
+
+## Telemetry (可选)
+
+```bash
+echo '{"skill":"android-dump","package":"'$_PACKAGE'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+```

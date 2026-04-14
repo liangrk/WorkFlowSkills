@@ -88,7 +88,7 @@ description: |
 ## Capture Learnings
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"tdd","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"tdd","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```
 
 记录: 测试框架坑、有效测试模式。不记录: 一次性编译错误。

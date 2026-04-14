@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# android-exec — 统一执行包装器,解决 Windows/Linux 路径问题
+# 用法: android-exec <script-name> [args...]
+# 示例: android-exec android-scan-project --force
+#       android-exec android-detect-env
+
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+  echo "Usage: android-exec <script-name> [args...]" >&2
+  exit 1
+fi
+
+SCRIPT_NAME="$1"
+shift
+
+# 智能查找 shared/bin
+SHARED_BIN=""
+_PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -n "$_PROJECT_ROOT" ] && [ -d "$_PROJECT_ROOT/.claude/skills/android-shared/bin" ]; then
+  SHARED_BIN="$_PROJECT_ROOT/.claude/skills/android-shared/bin"
+elif [ -d "$_SCRIPT_DIR" ]; then
+  SHARED_BIN="$_SCRIPT_DIR"
+elif [ -d "$HOME/.claude/skills/android-shared/bin" ]; then
+  SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+fi
+
+if [ -z "$SHARED_BIN" ]; then
+  echo "ERROR: Cannot find android-shared/bin" >&2
+  exit 1
+fi
+
+TARGET="$SHARED_BIN/$SCRIPT_NAME"
+
+if [ ! -f "$TARGET" ]; then
+  echo "ERROR: Script not found: $TARGET" >&2
+  exit 1
+fi
+
+# 执行目标脚本
+bash "$TARGET" "$@"

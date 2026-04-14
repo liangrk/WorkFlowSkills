@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# android-resolve-path — 智能路径解析器,解决 Windows/Linux 跨平台调用问题
+# 用法: source "$(android-resolve-path)"  或  SHARED_BIN=$(android-resolve-path)
+# 自动检测:
+#   1. git worktree 根目录
+#   2. 当前脚本实际位置
+#   3. 备用位置 (~/.claude/skills)
+# 输出: SHARED_BIN 的绝对路径
+
+set -euo pipefail
+
+# 策略 1: 通过 git worktree 找项目根
+_PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+
+# 策略 2: 通过当前脚本位置找
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 优先使用项目根下的 skills
+if [ -n "$_PROJECT_ROOT" ] && [ -d "$_PROJECT_ROOT/.claude/skills/android-shared/bin" ]; then
+  echo "$_PROJECT_ROOT/.claude/skills/android-shared"
+  exit 0
+fi
+
+# 其次使用脚本实际位置的上级
+if [ -d "$_SCRIPT_DIR" ]; then
+  echo "$_SCRIPT_DIR"
+  exit 0
+fi
+
+# 最后回退到用户目录
+if [ -d "$HOME/.claude/skills/android-shared/bin" ]; then
+  echo "$HOME/.claude/skills/android-shared"
+  exit 0
+fi
+
+echo "ERROR: android-shared skills not found" >&2
+exit 1

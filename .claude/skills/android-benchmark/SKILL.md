@@ -63,5 +63,5 @@ docs/reviews/<branch>-benchmark-report.md:
 ## Capture Learnings
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"benchmark","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"benchmark","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```

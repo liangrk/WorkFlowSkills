@@ -12,7 +12,7 @@ description: |
 ## Phase 0: 环境检测
 
 ```bash
-ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
+ENV_JSON=$(bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true)
 # 检查 JaCoCo 配置、测试框架
 ```
 

@@ -12,9 +12,9 @@ description: |
 ## Phase 0: 问题收集
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+# SHARED_BIN resolved dynamically
+# fallback handled
 
 # 上下文继承: 读取上游 QA 报告中的 bug 列表
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -92,5 +92,5 @@ docs/reviews/<branch>-investigate-report.md:
 ## Capture Learnings
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"investigate","type":"pitfall","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"investigate","type":"pitfall","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```

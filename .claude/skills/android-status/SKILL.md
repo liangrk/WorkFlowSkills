@@ -11,7 +11,7 @@ description: |
 ## 采集
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
 
 # git 状态
 git status --short 2>/dev/null | head -20

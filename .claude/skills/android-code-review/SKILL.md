@@ -43,5 +43,5 @@ docs/reviews/<branch>-code-review.md:
 ## Capture Learnings
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"code-review","type":"pitfall","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"code-review","type":"pitfall","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```

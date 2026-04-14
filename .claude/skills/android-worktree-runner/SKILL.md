@@ -16,8 +16,8 @@ description: |
 
 ```
 所有 tasks.json 写入必须:
-  echo '<json>' | bash "$SHARED_BIN/android-file-lock" "$TASKS_FILE.lock" \
-    bash "$SHARED_BIN/android-json-atomic" "$TASKS_FILE"
+  echo '<json>' | bash "$SHARED_BIN/bin/android-file-lock" "$TASKS_FILE.lock" \
+    bash "$SHARED_BIN/bin/android-json-atomic" "$TASKS_FILE"
 禁止直接使用 Write 工具写入 tasks.json。
 ```
 
@@ -28,17 +28,16 @@ description: |
 ```bash
 MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
 TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
-SHARED_BIN="$MAIN_WORKTREE/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+SHARED_BIN=$(bash "$MAIN_WORKTREE/.claude/skills/android-shared/bin/android-resolve-path" 2>/dev/null || bash android-resolve-path 2>/dev/null || true)
 ```
 
 ## Phase 0: 导入 Plan
 
 ```bash
 # 预加载
-bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
-LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type technique --limit 5 2>/dev/null || true)
-ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
+bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
+LEARNINGS=$(bash "$SHARED_BIN/bin/android-learnings-search" --type technique --limit 5 2>/dev/null || true)
+ENV_JSON=$(bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true)
 ```
 
 ### 加载项目上下文
@@ -107,7 +106,7 @@ git worktree add "$WORKTREE_PATH" -b "$BRANCH"
 ## Phase 0.5: 健康检查
 
 ```bash
-bash "$SHARED_BIN/android-worktree-health"
+bash "$SHARED_BIN/bin/android-worktree-health"
 ```
 
 发现问题 → AskUserQuestion: A) 自动清理 B) 手动选择 C) 跳过
@@ -248,7 +247,7 @@ Wave 3: [Task D]  ← 单任务回退串行
 ## Capture Learnings
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"worktree-runner","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"worktree-runner","type":"technique","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```
 
 记录: 构建顺序依赖、环境配置问题。不记录: 一次性编译错误、重复发现。

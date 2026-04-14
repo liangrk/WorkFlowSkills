@@ -11,16 +11,16 @@ description: |
 ## Phase 1: 项目根目录
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+# SHARED_BIN resolved dynamically
+# fallback handled
 ```
 
 ## Phase 2: 扫描
 
 ```bash
-bash "$SHARED_BIN/android-scan-project" 2>/dev/null || true
-bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true
+bash "$SHARED_BIN/bin/android-scan-project" 2>/dev/null || true
+bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true
 ```
 
 扫描内容:

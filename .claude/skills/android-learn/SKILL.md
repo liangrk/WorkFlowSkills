@@ -11,11 +11,11 @@ description: |
 ## search
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+# SHARED_BIN resolved dynamically
+# fallback handled
 
-bash "$SHARED_BIN/android-learnings-search" --limit 10 2>/dev/null
+bash "$SHARED_BIN/bin/android-learnings-search" --limit 10 2>/dev/null
 ```
 
 按类型搜索: `--type pitfall|pattern|technique`
@@ -29,14 +29,14 @@ AskUserQuestion 收集信息:
 - 来源 (observed/user-stated/inferred)
 
 ```bash
-bash "$SHARED_BIN/android-learnings-log" '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
+bash "$SHARED_BIN/bin/android-learnings-log" '{"skill":"learn","type":"TYPE","key":"KEY","insight":"INSIGHT","confidence":8,"source":"observed","files":[]}'
 ```
 
 ## prune
 
 ```bash
 # 显示统计
-bash "$SHARED_BIN/android-learnings-search" --stats 2>/dev/null
+bash "$SHARED_BIN/bin/android-learnings-search" --stats 2>/dev/null
 
 # 清理低置信度或过期记录
 # 询问用户是否清理

@@ -11,10 +11,10 @@ description: |
 ## Phase 0: 环境
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
-bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+# SHARED_BIN resolved dynamically
+# fallback handled
+bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
 ```
 
 ## Phase 1: 设计稿获取

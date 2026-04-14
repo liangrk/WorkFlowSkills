@@ -13,12 +13,12 @@ description: |
 ## Phase 0: 环境检测
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
-bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
-LEARNINGS=$(bash "$SHARED_BIN/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
-ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+# SHARED_BIN resolved dynamically
+# fallback handled
+bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
+LEARNINGS=$(bash "$SHARED_BIN/bin/android-learnings-search" --type pitfall --limit 5 2>/dev/null || true)
+ENV_JSON=$(bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true)
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)

@@ -15,7 +15,7 @@ description: |
 ## save
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
 TASKS_FILE="$_R/.claude/android-worktree-runner/tasks.json"
 ```
 

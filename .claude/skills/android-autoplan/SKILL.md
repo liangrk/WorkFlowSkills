@@ -12,12 +12,11 @@ description: |
 ## Phase 0: 项目环境
 
 ```bash
-_R="$(git worktree list | head -1 | awk '{print $1}')"
-SHARED_BIN="$_R/.claude/skills/android-shared/bin"
-[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
-bash "$SHARED_BIN/android-learnings-bootstrap" 2>/dev/null || true
-bash "$SHARED_BIN/android-scan-project" 2>/dev/null || true
-ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+[ -n "$SHARED_BIN" ] && export PATH="$SHARED_BIN/bin:$PATH"
+bash "$SHARED_BIN/bin/bin/android-learnings-bootstrap" 2>/dev/null || true
+bash "$SHARED_BIN/bin/bin/android-scan-project" 2>/dev/null || true
+ENV_JSON=$(bash "$SHARED_BIN/bin/bin/android-detect-env" 2>/dev/null || true)
 ```
 
 读取 `.android-project-profile.json` (如有)。
