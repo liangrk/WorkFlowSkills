@@ -61,19 +61,24 @@ GRADLE_CHANGES=$(echo "$CHANGED_FILES" | grep -E 'build\.gradle|settings\.gradle
 
 ## Phase 2: 分层测试
 
-### Layer 1: 静态分析 (无需设备)
+### Layer 1: 静态分析 (引用 code-review 结论)
 
-| 检查项 | 检测 | 严重 |
-|--------|------|------|
-| 空指针风险 | `!!` 操作符 | 高 |
-| 空 catch 块 | `catch.*{ *}` | 中 |
-| TODO/FIXME | `TODO\|FIXME\|HACK` | 中 |
-| 硬编码字符串 | UI 代码中字符串字面量 | 中 |
-| 内存泄漏 | 匿名类持有 Activity | 高 |
-| 主线程 IO | `Dispatchers.Main` + http/retrofit | 高 |
-| 资源完整性 | R.drawable/R.string 存在性 | 高 |
-| Manifest 声明 | Activity/Service/Receiver 声明 | 高 |
-| 新增权限 | AndroidManifest.xml 中 uses-permission diff | 中 |
+**不重复执行静态分析。** 直接读取最近的 code-review 报告:
+
+```bash
+CODE_REVIEW=$(find docs/reviews -name "*-code-review.md" -mmin -1440 2>/dev/null | sort -r | head -1)
+if [ -n "$CODE_REVIEW" ] && [ -f "$CODE_REVIEW" ]; then
+  echo "=== 复用 code-review 结论 ==="
+  grep -E "^\[BLOCKER\]|^\[WARNING\]" "$CODE_REVIEW"
+else
+  echo "=== 未找到 code-review，执行快速静态扫描 ==="
+  # 仅检查关键问题: !! / 空catch / 主线程IO
+  grep -rn '!!' app/src/main --include="*.kt" | head -10
+  grep -rn 'Dispatchers\.Main' app/src/main --include="*.kt" | grep -i "http\|request" | head -5
+fi
+```
+
+**QA 关注行为层，不重复代码质量检查。**
 
 ### Layer 2: 构建+测试 (无需设备)
 

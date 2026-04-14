@@ -3,13 +3,15 @@
 ## 流水线概览
 
 ```
-brainstorm → autoplan → worktree-runner → code-review → qa → ship
-                │              │
-                │              ├─► tdd (自动调用)
-                │              ├─► investigate (阻塞时调用)
-                │              └─► benchmark (可选)
-                │
-                └─► checkpoint (自动保存)
+brainstorm → autoplan → worktree-runner → code-review → qa → ship → build
+    │              │              │                │           │        │       │
+    │              │              ├─► tdd          │           │        │       │
+    │              │              ├─► investigate  │           │        │       │
+    │              │              └─► benchmark    │           │        │       │
+    │              │                               │           │        │       │
+    ├─► dump (UI分析)                              ├─► dump    │        │       │
+    │                                              │           │        │       │
+    └─► checkpoint (自动保存)                      └───────────┴────────┴───────┘
 ```
 
 ## 各 Skill 的 输入/输出契约
@@ -59,6 +61,16 @@ brainstorm → autoplan → worktree-runner → code-review → qa → ship
 - **输出**: PR merged to main
 - **前置条件**: qa-report 中无 BLOCKER
 
+### 10. build
+- **输入**: 当前分支
+- **输出**: Release APK/AAB + 构建报告
+- **前置条件**: qa 通过 + code-review 通过
+
+### 11. dump
+- **输入**: 目标 App 包名 (可自动检测)
+- **输出**: UI 层次 XML + analysis.json + tree_view.html
+- **下游**: design-review (UI 分析), qa (UI 验证)
+
 ## 状态传递规则
 
 1. **Plan 文件** (`docs/plans/`) 是唯一真相源
@@ -92,6 +104,8 @@ qa 读取变更范围 + PRD,执行分层验证
 | code-review → qa | 审查问题列表 (BLOCKER/WARNING) | `docs/reviews/*-code-review.md` (最近 24h) |
 | qa → investigate | bug 列表 + 复现步骤 | `docs/reviews/*-qa-report.md` (最近 24h) |
 | investigate → fix | 根因分析 + 修复方案 | `docs/reviews/*-investigate-report.md` |
+| qa/design-review → build | 验证通过的功能列表 | `docs/reviews/*-qa-report.md` + `*-code-review.md` |
+| dump → design-review | UI 层次结构 + 元素列表 | `android-dumps/*/analysis.json` |
 
 **匹配规则:**
 - brainstorm → autoplan: 主题关键词匹配时自动加载,不匹配则询问
