@@ -3,7 +3,8 @@
 import re
 from pathlib import Path
 
-SKILLS_DIR = Path("E:/ldmnq_project/selfp/WorkFlowSkills/.claude/skills")
+# 动态获取脚本所在目录 (避免硬编码路径)
+SKILLS_DIR = Path(__file__).resolve().parent
 
 REPLACEMENTS = [
     (r'_R=".*git worktree list.*"', 'SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)'),
