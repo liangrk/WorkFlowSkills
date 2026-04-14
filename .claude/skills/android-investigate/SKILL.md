@@ -17,7 +17,7 @@ SHARED_BIN="$_R/.claude/skills/android-shared/bin"
 [ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
 
 # 上下文继承: 读取上游 QA 报告中的 bug 列表
-QA_REPORT=$(find docs/reviews -name "*-qa-report.md" -mmin -1440 2>/dev/null | sort -r | head -1)
+QA_REPORT=$(find docs/reviews -name "*-qa-report.md" -mmin -10080 2>/dev/null | sort -r | head -1)
 if [ -n "$QA_REPORT" ] && [ -f "$QA_REPORT" ]; then
   echo "=== 上游 QA 报告中的 bug ==="
   grep -E "^#### BUG-|^\[BLOCKER\]|^\[WARNING\]" "$QA_REPORT" | head -20

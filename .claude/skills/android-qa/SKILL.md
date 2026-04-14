@@ -39,8 +39,8 @@ if [ -n "$PRD_FILE" ]; then
   # 解析 FR-N / AC-N / exclusions
 fi
 
-# 上下文继承: 读取上游 code-review 报告
-CODE_REVIEW=$(find docs/reviews -name "*-code-review.md" -mmin -1440 2>/dev/null | sort -r | head -1)
+# 上下文继承: 读取上游 code-review 报告 (Phase 0 统一读取, Phase 2 使用)
+CODE_REVIEW=$(find docs/reviews -name "*-code-review.md" -mmin -10080 2>/dev/null | sort -r | head -1)
 if [ -n "$CODE_REVIEW" ] && [ -f "$CODE_REVIEW" ]; then
   echo "=== 上游 code-review 报告 ==="
   grep -E "^\[BLOCKER\]|^\[WARNING\]|^\[INFO\]" "$CODE_REVIEW" | head -20
@@ -63,10 +63,9 @@ GRADLE_CHANGES=$(echo "$CHANGED_FILES" | grep -E 'build\.gradle|settings\.gradle
 
 ### Layer 1: 静态分析 (引用 code-review 结论)
 
-**不重复执行静态分析。** 直接读取最近的 code-review 报告:
+**不重复执行静态分析。** 使用 Phase 0 读取的 `$CODE_REVIEW` 变量:
 
 ```bash
-CODE_REVIEW=$(find docs/reviews -name "*-code-review.md" -mmin -1440 2>/dev/null | sort -r | head -1)
 if [ -n "$CODE_REVIEW" ] && [ -f "$CODE_REVIEW" ]; then
   echo "=== 复用 code-review 结论 ==="
   grep -E "^\[BLOCKER\]|^\[WARNING\]" "$CODE_REVIEW"

@@ -1,0 +1,31 @@
+UI DUMP | com.ld.cph.gl | uiautomator
+========================================
+Views: 75 | Clickable: 15 | IDs: 52
+
+IDs:
+  action_bar_root
+  content
+  main_viewpager
+  iv_home_bg_guide
+  root
+  ll_tab
+  tad_num
+  dropdown
+  buy
+  tv_refresh
+  menu
+  refresh
+  picker_phone
+  shadow_container
+  rl_content
+
+Text (9 items):
+  全部设备 (2)
+  更多功能
+  剩余： 28天 22时 
+  更多功能
+  hwh是大傻逼
+  云手机
+  奖励
+  发现
+  我的

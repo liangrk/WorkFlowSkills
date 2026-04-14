@@ -1,0 +1,50 @@
+# weekly-config.yaml - 周报配置模板
+# 复制此文件并根据实际情况修改
+
+# 仓库列表 - 需要搜索 git log 的仓库路径
+repositories:
+  - name: 示例项目A
+    path: ./project-a
+  - name: 示例项目B
+    path: ./project-b
+
+# 本周任务列表
+tasks:
+  - name: "示例任务1 - 已完成"
+    status: "completed"  # completed / in_progress / planned
+    progress: 100        # 0-100, 仅用于 in_progress
+    description: "这是一个已完成的任务示例"
+    category: "feature"  # feature / bugfix / optimization / doc / other
+  
+  - name: "示例任务2 - 进行中"
+    status: "in_progress"
+    progress: 60
+    description: "这是一个进行中的任务示例"
+    category: "optimization"
+  
+  - name: "示例任务3 - 下周计划"
+    status: "planned"
+    progress: 0
+    description: "这是下周计划的示例"
+    category: "feature"
+
+# 周报配置
+config:
+  # 周报名称
+  title: "工作周报"
+  
+  # 是否显示 git log 详情
+  show_git_details: true
+  
+  # 日志过滤 - 只显示包含这些关键词的 commit (空表示不过滤)
+  commit_filters: []
+    # - feat
+    # - fix
+    # - refactor
+    # - docs
+  
+  # 排除的分支 (在这些分支上的 commit 不会显示)
+  exclude_branches: []
+    # - main
+    # - master
+    # - develop

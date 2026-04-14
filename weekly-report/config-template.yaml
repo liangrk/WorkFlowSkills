@@ -1,0 +1,78 @@
+# ============================================
+# 周报配置文件
+# 使用说明：
+# 1. 修改 repositories 为你的实际仓库路径
+# 2. 修改 tasks 为你的本周任务
+# 3. 运行: python scripts/generate-report.py --config 本文件路径
+# ============================================
+
+# 仓库列表 - 需要搜索 git log 的仓库路径
+repositories:
+  - name: "主仓库名称"        # 仓库显示名称（周报中会显示）
+    path: "./your-repo-path"  # 仓库路径（相对路径或绝对路径）
+  
+  - name: "后端服务"
+    path: "../backend-service"
+  
+  - name: "前端项目"
+    path: "../frontend-app"
+  
+  - name: "移动端"
+    path: "D:/projects/mobile-app"
+
+# 任务列表
+tasks:
+  # ---------- 已完成的任务 ----------
+  - name: "用户登录功能"              # 任务名称（用于匹配 git commit）
+    status: "completed"               # 状态：completed = 已完成
+    description: "完成 OAuth2.0 登录集成"  # 任务描述
+    category: "feature"               # 分类：feature / bugfix / optimization / doc / other
+
+  - name: "数据库查询优化"
+    status: "completed"
+    description: "为用户列表接口添加索引，优化慢查询"
+    category: "optimization"
+
+  # ---------- 进行中的任务 ----------
+  - name: "订单模块重构"
+    status: "in_progress"             # 状态：in_progress = 进行中
+    progress: 65                      # 进度百分比 (0-100)
+    description: "重构订单创建和支付流程"
+    category: "refactor"
+
+  - name: "权限系统开发"
+    status: "in_progress"
+    progress: 40
+    description: "基于 RBAC 模型实现权限控制"
+    category: "feature"
+
+  # ---------- 下周计划 ----------
+  - name: "API 文档更新"
+    status: "planned"                 # 状态：planned = 计划中
+    description: "补充用户模块和订单模块的接口文档"
+    category: "doc"
+
+  - name: "部署流程优化"
+    status: "planned"
+    description: "配置 CI/CD 自动化部署"
+    category: "other"
+
+# 周报生成配置
+config:
+  title: "工作周报"                   # 周报名称
+  
+  show_git_details: true              # 是否显示 git commit 详情（true/false）
+  
+  # Commit 消息过滤 - 只包含含有这些关键词的 commit（留空 = 不过滤）
+  commit_filters: []
+  # - feat
+  # - fix
+  # - perf
+  # - refactor
+  # - docs
+  
+  # 排除的分支 - 这些分支上的 commit 不会显示
+  exclude_branches: []
+  # - main
+  # - master
+  # - develop

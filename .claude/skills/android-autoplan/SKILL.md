@@ -25,19 +25,20 @@ ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 ### 上下文继承: 自动加载上游 brainstorm 产出
 
 ```bash
-# 查找最近的 thinking 文档 (最近 24 小时)
-THINKING=$(find docs/thinking -name "*.md" -mmin -1440 2>/dev/null | sort -r | head -3)
-if [ -n "$THINKING" ]; then
-  echo "=== 上游 brainstorm 产出 ==="
-  echo "$THINKING"
-  for f in $THINKING; do cat "$f"; done
-fi
+# 查找最近的 thinking 文档 (最近 24 小时,最多 3 个)
+THINKING=$(find docs/thinking -name "*.md" -mmin -10080 2>/dev/null | sort -r | head -3)
 ```
 
 **继承规则:**
-- 找到 thinking 文档 → 从中提取需求/约束/假设,作为 PRD 输入
-- 没找到 → 从用户当前描述中提取
-- 两者都有 → 合并,以 thinking 文档中的讨论结论优先
+
+| 场景 | 行为 |
+|------|------|
+| 用户需求与 thinking 文档主题匹配 (slug/关键词) | 自动加载,合并需求 |
+| 用户需求与 thinking 文档不匹配 | 提示存在,询问是否参考 |
+| 无 thinking 文档 | 从用户描述提取 |
+
+**实现:** 读取 thinking 文档的标题/主题,与用户当前需求做关键词匹配。
+匹配到 → 直接作为输入。**不匹配 → AskUserQuestion: "检测到最近的思考文档: `<文件名>`, 主题: `<主题>`, 是否参考?"**
 
 ## Phase 1: 需求拆分
 
