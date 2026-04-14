@@ -18,7 +18,8 @@ SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
 # 最近的变更
 CHANGES=$(git diff --name-only HEAD~10..HEAD 2>/dev/null)
 # Plan 执行记录
-TASKS="$_R/.claude/android-worktree-runner/tasks.json"
+MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+TASKS="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
 # Review 报告
 REVIEWS=$(find docs/reviews -name "*.md" -mmin -10080 2>/dev/null | sort -r | head -5)
 ```

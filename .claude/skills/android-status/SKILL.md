@@ -18,16 +18,18 @@ git status --short 2>/dev/null | head -20
 git log --oneline -5 2>/dev/null
 
 # worktree
+MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
 git worktree list 2>/dev/null
 
 # checkpoint
 ls .claude/android-checkpoint/*.json 2>/dev/null | sort -r | head -5
 
 # tasks
-if [ -f "$_R/.claude/android-worktree-runner/tasks.json" ]; then
+TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
+if [ -f "$TASKS_FILE" ]; then
   python3 -c "
 import json
-data = json.load(open('$_R/.claude/android-worktree-runner/tasks.json'))
+data = json.load(open('$TASKS_FILE'))
 for pid, p in data.get('plans',{}).items():
     done = sum(1 for t in p['tasks'] if t['status']=='completed')
     total = len(p['tasks'])

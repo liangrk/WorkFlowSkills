@@ -14,9 +14,9 @@ description: |
 ```bash
 SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
 [ -n "$SHARED_BIN" ] && export PATH="$SHARED_BIN/bin:$PATH"
-bash "$SHARED_BIN/bin/bin/android-learnings-bootstrap" 2>/dev/null || true
-bash "$SHARED_BIN/bin/bin/android-scan-project" 2>/dev/null || true
-ENV_JSON=$(bash "$SHARED_BIN/bin/bin/android-detect-env" 2>/dev/null || true)
+bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
+bash "$SHARED_BIN/bin/android-scan-project" 2>/dev/null || true
+ENV_JSON=$(bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true)
 ```
 
 读取 `.android-project-profile.json` (如有)。

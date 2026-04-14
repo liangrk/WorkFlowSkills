@@ -16,7 +16,8 @@ description: |
 
 ```bash
 SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
-TASKS_FILE="$_R/.claude/android-worktree-runner/tasks.json"
+MAIN_WORKTREE=$(git worktree list 2>/dev/null | head -1 | awk '{print $1}')
+TASKS_FILE="$MAIN_WORKTREE/.claude/android-worktree-runner/tasks.json"
 ```
 
 保存内容:

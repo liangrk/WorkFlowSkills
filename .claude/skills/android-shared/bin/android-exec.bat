@@ -9,6 +9,14 @@ if "%~1"=="" (
 REM 脚本位置 (必须在 shift 前获取)
 set SCRIPT_DIR=%~dp0
 set SCRIPT_NAME=%~1
+
+REM 安全验证: 禁止路径遍历
+echo %SCRIPT_NAME% | findstr /r "\.\." >nul
+if %errorlevel% equ 0 (
+    echo ERROR: Invalid script name (no .. allowed)
+    exit /b 1
+)
+
 shift
 
 REM 查找 Git Bash
@@ -30,5 +38,11 @@ if not defined GIT_BASH (
 )
 
 set TARGET=%SCRIPT_DIR%%SCRIPT_NAME%
+
+REM 验证目标脚本存在
+if not exist "%TARGET%" (
+    echo ERROR: Script not found: %TARGET%
+    exit /b 1
+)
 
 %GIT_BASH% --login "%TARGET%" %*
