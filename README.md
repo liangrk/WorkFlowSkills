@@ -7,7 +7,6 @@
 | Skill | 类型 | 说明 |
 |-------|------|------|
 | `weekly-report` | 日常工作 | 自动生成周报，整合多仓库 git log 和任务状态 |
-| `dump-android-ui` | UI 分析 | 一键 dump Android App UI 视图树，生成元素 ID/文本/布局分析和交互式可视化 |
 | `android-*` | Android 开发 | Android 完整开发流程 (见下方详细说明) |
 
 ---
@@ -109,7 +108,7 @@ weekly-report/
 
 ---
 
-## dump-android-ui
+## android-dump
 
 一键 dump Android App 的 UI 视图树，自动生成元素 ID、文本内容、布局结构分析和交互式可视化报告。
 
@@ -117,13 +116,13 @@ weekly-report/
 
 ```bash
 # 自动检测当前前台 App 并 dump
-python .claude/skills/dump-android-ui/scripts/dump_android_ui.py
+python .claude/skills/android-dump/scripts/dump_android_ui.py
 
 # 指定 App 包名
-python .claude/skills/dump-android-ui/scripts/dump_android_ui.py --package com.example.app
+python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.example.app
 
 # 指定输出目录
-python .claude/skills/dump-android-ui/scripts/dump_android_ui.py --package com.example.app --output ./dumps
+python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.example.app --output ./dumps
 ```
 
 ### 输出文件

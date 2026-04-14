@@ -1,5 +1,5 @@
 ---
-name: dump-android-ui
+name: android-dump
 description: |
   Automated Android UI hierarchy dumper. Dumps complete view tree with resource IDs, text, layout properties. Generates interactive HTML visualization.
   Triggers: dump UI, view hierarchy, element IDs, screen inspection, run and verify UI, auto validate app interface, check current screen, analyze app layout, UI testing verification
@@ -89,5 +89,12 @@ for id in data['resource_ids'][:10]: print(f'  - {id}')
 ## Telemetry
 
 ```bash
-echo '{"skill":"dump-android-ui","package":"'$_PACKAGE'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"android-dump","package":"'$_PACKAGE'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
+
+## 与其他 Skill 的衔接
+
+| 下游 Skill | 传递内容 | 调用时机 |
+|-----------|---------|---------|
+| android-design-review | UI 层次结构 + 元素列表 (`analysis.json`) | 涉及 UI 设计还原时 |
+| android-qa | UI 元素列表用于功能验证参考 | QA 测试阶段 |

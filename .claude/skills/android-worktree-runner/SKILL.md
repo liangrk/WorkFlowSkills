@@ -87,6 +87,7 @@ if [ -f "$STATUS_FILE" ]; then cat "$STATUS_FILE"; fi
 ```
 
 若存在: 提取 plan_id / source / review_summary / approved_at 写入 tasks.json。
+**审批检查:** 若 plan-status.json 存在但 approved_at 为空 → AskUserQuestion: "Plan 未通过审批。是否继续?" A) 继续 B) 先审批 C) 取消
 
 ### 创建 Worktree
 
@@ -220,15 +221,12 @@ Wave 3: [Task D]  ← 单任务回退串行
 
 ## Phase 3: Plan 完成
 
-详见 `REFERENCE.md` — Plan 完成输出格式。
 
 ## 多 Worktree 管理
 
-详见 `REFERENCE.md` — 多 Worktree 管理与冲突预防。
 
 ## 恢复机制
 
-详见 `REFERENCE.md` — 恢复机制与持久化规则。
 
 ## 异常处理
 

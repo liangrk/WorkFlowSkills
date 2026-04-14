@@ -175,20 +175,15 @@ fi
 | 一般 | 🟡 | 可用但有问题/UX受影响 | 建议修复 |
 | 提示 | 🟢 | 代码质量/最佳实践 | 后续处理 |
 
-报告格式参见 REFERENCE.md。
 
 ## Phase 5: 修复循环
 
-详见 `REFERENCE.md` — Phase 5 修复循环。
 
 ## Capture Learnings
 
-详见 `REFERENCE.md` — Capture Learnings。
 
 ## 异常处理
 
-详见 `REFERENCE.md` — 异常情况处理表。
 
 ## 与其他 Skill 衔接
 
-详见 `REFERENCE.md` — 与其他 Skill 的衔接。

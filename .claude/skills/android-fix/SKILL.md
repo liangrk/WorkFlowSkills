@@ -322,3 +322,10 @@ android-ship / android-qa / android-code-review
 | worktree-runner 执行失败 | worktree-runner 自身处理 (blocked/failed 状态) |
 | 不在 git 仓库中 | 报错: "需要 git 仓库" |
 | 文件参数不存在 | 报错: "文件不存在" |
+
+## 修复完成后
+
+修复完成后,推荐运行 `/android-qa` 重新验证,确保修复没有引入回归:
+```
+修复完成 → /android-qa → 验证通过 → /android-ship 提交
+```

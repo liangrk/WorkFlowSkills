@@ -1,5 +1,7 @@
 # Android Skill 流水线
 
+> 注: 本文中 skill 名称省略 `android-` 前缀, 实际调用为 `/android-<名称>`。
+
 ## 流水线概览
 
 ```
