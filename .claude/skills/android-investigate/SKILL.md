@@ -11,8 +11,21 @@ description: |
 
 ## Phase 0: 问题收集
 
+```bash
+_R="$(git worktree list | head -1 | awk '{print $1}')"
+SHARED_BIN="$_R/.claude/skills/android-shared/bin"
+[ ! -d "$SHARED_BIN" ] && SHARED_BIN="$HOME/.claude/skills/android-shared/bin"
+
+# 上下文继承: 读取上游 QA 报告中的 bug 列表
+QA_REPORT=$(find docs/reviews -name "*-qa-report.md" -mmin -1440 2>/dev/null | sort -r | head -1)
+if [ -n "$QA_REPORT" ] && [ -f "$QA_REPORT" ]; then
+  echo "=== 上游 QA 报告中的 bug ==="
+  grep -E "^#### BUG-|^\[BLOCKER\]|^\[WARNING\]" "$QA_REPORT" | head -20
+fi
 ```
-输入: 问题描述 (自然语言)
+
+```
+输入: 问题描述 (自然语言) 或 QA 报告中的 BUG-N
 输出: 结构化的问题定义
   - 症状: 发生了什么?
   - 预期: 应该发生什么?

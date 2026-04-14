@@ -86,13 +86,17 @@ qa 读取变更范围 + PRD,执行分层验证
 
 | 上游 → 下游 | 继承内容 | 查找路径 |
 |------------|---------|---------|
-| brainstorm → autoplan | 需求/约束/假设/讨论结论 | `docs/thinking/*.md` (最近 24h) |
+| brainstorm → autoplan | 需求/约束/假设/讨论结论 | `docs/thinking/*.md` (最近 24h, 主题匹配) |
 | autoplan → worktree-runner | PRD (FR/AC) + 任务树 + TDD 标注 | `docs/plans/*.md` + `plan-status.json` |
 | worktree-runner → code-review | 变更范围 + tasks.json 执行状态 | `git diff` + `tasks.json` |
-| code-review → qa | 审查通过的功能列表 | `docs/reviews/*-code-review.md` |
-| qa → investigate | bug 列表 + 复现步骤 | `docs/reviews/*-qa-report.md` |
+| code-review → qa | 审查问题列表 (BLOCKER/WARNING) | `docs/reviews/*-code-review.md` (最近 24h) |
+| qa → investigate | bug 列表 + 复现步骤 | `docs/reviews/*-qa-report.md` (最近 24h) |
+| investigate → fix | 根因分析 + 修复方案 | `docs/reviews/*-investigate-report.md` |
 
-**如果上游产出为空:** 从用户当前描述中提取,不阻塞流程。
+**匹配规则:**
+- brainstorm → autoplan: 主题关键词匹配时自动加载,不匹配则询问
+- 其他继承: 自动加载最近 24h 内的上游产出
+- 如果上游产出为空: 从用户当前描述中提取,不阻塞流程
 
 ## Skill 调用规则
 

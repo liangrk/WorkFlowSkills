@@ -38,6 +38,13 @@ if [ -n "$PRD_FILE" ]; then
   sed -n '/^## PRD$/,/^## [^#]/p' "$PRD_FILE" | head -n -1
   # 解析 FR-N / AC-N / exclusions
 fi
+
+# 上下文继承: 读取上游 code-review 报告
+CODE_REVIEW=$(find docs/reviews -name "*-code-review.md" -mmin -1440 2>/dev/null | sort -r | head -1)
+if [ -n "$CODE_REVIEW" ] && [ -f "$CODE_REVIEW" ]; then
+  echo "=== 上游 code-review 报告 ==="
+  grep -E "^\[BLOCKER\]|^\[WARNING\]|^\[INFO\]" "$CODE_REVIEW" | head -20
+fi
 ```
 
 ## Phase 1: 测试范围
