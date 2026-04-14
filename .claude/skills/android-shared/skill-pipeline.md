@@ -66,6 +66,34 @@ brainstorm → autoplan → worktree-runner → code-review → qa → ship
 3. **Review 报告** (`docs/reviews/`) 是质量门禁
 4. **checkpoint** (`.claude/android-checkpoint/`) 是跨 session 恢复点
 
+## 上下文继承机制
+
+每个 skill 启动时,自动扫描并加载上游产出物:
+
+```
+brainstorm → docs/thinking/*.md
+     ↓ 继承
+autoplan 自动扫描最近 24h thinking 文档,提取需求/约束/假设
+     ↓ 继承 (PRD + 任务 + 验收标准)
+worktree-runner 从 plan 文件读取 PRD,执行时验证 AC 覆盖度
+     ↓ 继承 (diff + review 问题)
+code-review 读取变更范围,产出审查报告
+     ↓ 继承 (审查问题列表)
+qa 读取变更范围 + PRD,执行分层验证
+```
+
+**继承规则:**
+
+| 上游 → 下游 | 继承内容 | 查找路径 |
+|------------|---------|---------|
+| brainstorm → autoplan | 需求/约束/假设/讨论结论 | `docs/thinking/*.md` (最近 24h) |
+| autoplan → worktree-runner | PRD (FR/AC) + 任务树 + TDD 标注 | `docs/plans/*.md` + `plan-status.json` |
+| worktree-runner → code-review | 变更范围 + tasks.json 执行状态 | `git diff` + `tasks.json` |
+| code-review → qa | 审查通过的功能列表 | `docs/reviews/*-code-review.md` |
+| qa → investigate | bug 列表 + 复现步骤 | `docs/reviews/*-qa-report.md` |
+
+**如果上游产出为空:** 从用户当前描述中提取,不阻塞流程。
+
 ## Skill 调用规则
 
 | 场景 | 调用 skill |

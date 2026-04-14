@@ -22,6 +22,23 @@ ENV_JSON=$(bash "$SHARED_BIN/android-detect-env" 2>/dev/null || true)
 
 读取 `.android-project-profile.json` (如有)。
 
+### 上下文继承: 自动加载上游 brainstorm 产出
+
+```bash
+# 查找最近的 thinking 文档 (最近 24 小时)
+THINKING=$(find docs/thinking -name "*.md" -mmin -1440 2>/dev/null | sort -r | head -3)
+if [ -n "$THINKING" ]; then
+  echo "=== 上游 brainstorm 产出 ==="
+  echo "$THINKING"
+  for f in $THINKING; do cat "$f"; done
+fi
+```
+
+**继承规则:**
+- 找到 thinking 文档 → 从中提取需求/约束/假设,作为 PRD 输入
+- 没找到 → 从用户当前描述中提取
+- 两者都有 → 合并,以 thinking 文档中的讨论结论优先
+
 ## Phase 1: 需求拆分
 
 ```
