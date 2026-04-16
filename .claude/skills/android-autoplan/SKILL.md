@@ -12,81 +12,85 @@ description: |
 ## Phase 0: 项目环境
 
 ```bash
+# 运行锁: 防止多实例冲突
+LOCKFILE=".claude/android-autoplan.lock"
+if [ -f "$LOCKFILE" ]; then
+  # 检查进程是否还在 (跨平台 PID 检查)
+  OLD_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "ERROR: android-autoplan 已在运行 (PID: $OLD_PID)。请稍后再试。"
+    exit 1
+  fi
+fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT
+
 SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
 [ -n "$SHARED_BIN" ] && export PATH="$SHARED_BIN/bin:$PATH"
-bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
-bash "$SHARED_BIN/bin/android-scan-project" 2>/dev/null || true
-ENV_JSON=$(bash "$SHARED_BIN/bin/android-detect-env" 2>/dev/null || true)
+# ... (rest of environment setup)
 ```
 
-读取 `.android-project-profile.json` (如有)。
+## Phase 3: Design Review (按需，含 MCP 自动检测)
 
-### 上下文继承: 自动加载上游 brainstorm 产出
+### 步骤 1: 判断是否需要设计审查
+
+AskUserQuestion: "此 plan 涉及 UI 变更，是否执行 Figma 设计审查?"
+- A) 是，我有 Figma 设计稿
+- B) 跳过，不需要设计审查
+
+如果选 B:
+```
+在 plan 中标注 "未做设计审查"
+继续 Phase 4
+```
+
+### 步骤 2: Figma MCP 状态检测 (仅当用户选择 A)
 
 ```bash
-# 查找最近的 thinking 文档 (最近 24 小时,最多 3 个)
-THINKING=$(find docs/thinking -name "*.md" -mmin -10080 2>/dev/null | sort -r | head -3)
+SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
+[ -n "$SHARED_BIN" ] && export PATH="$SHARED_BIN/bin:$PATH"
+
+# M1 修复: 检查脚本是否存在
+if [ ! -f "$SHARED_BIN/bin/figma-mcp-check" ]; then
+  echo "ERROR: 核心组件缺失 ($SHARED_BIN/bin/figma-mcp-check)。请检查安装。"
+  FIGMA_MCP_STATUS='{"configured":false, "error":"script_missing"}'
+else
+  FIGMA_MCP_STATUS=$(bash "$SHARED_BIN/bin/figma-mcp-check" --format json 2>/dev/null || echo '{"configured":false}')
+fi
 ```
 
-**继承规则:**
+**根据检测结果自动处理：**
 
-| 场景 | 行为 |
-|------|------|
-| 用户需求与 thinking 文档主题匹配 (slug/关键词) | 自动加载,合并需求 |
-| 用户需求与 thinking 文档不匹配 | 提示存在,询问是否参考 |
-| 无 thinking 文档 | 从用户描述提取 |
+| 检测状态 | 行为 |
+|---------|------|
+| `configured: true` + `api_key_set: true` | MCP 已就绪，跳到步骤 3 |
+| `configured: true` + `api_key_set: false` | 提示用户更新 API Key |
+| `configured: false` | 提示用户安装配置 MCP |
 
-**实现:** 读取 thinking 文档的标题/主题,与用户当前需求做关键词匹配。
-匹配到 → 直接作为输入。**不匹配 → AskUserQuestion: "检测到最近的思考文档: `<文件名>`, 主题: `<主题>`, 是否参考?"**
+**如果 MCP 未就绪：**
 
-## Phase 1: 需求拆分
+AskUserQuestion: "Figma MCP 未配置或配置不完整。请选择："
+- A) 现在配置 MCP (提供安装指引)
+- B) 跳过设计审查，继续 plan
+- C) 取消
 
+如果选 A: 提供配置指引，等待用户完成后继续
+如果选 B: 标注 "未做设计审查 - MCP 未配置"，继续 Phase 4
+
+### 步骤 3: 执行设计审查
+
+AskUserQuestion: "请提供 Figma 设计稿 URL:"
+- 输入 URL → 继续
+- 留空 → 稍后手动运行 /android-design-review
+
+如果用户提供了 URL:
 ```
-输入: 功能需求描述
-输出: 结构化 PRD + 任务树
-
-PRD 格式:
-## PRD
-功能需求 (FR-N):
-  FR-1: ...
-非功能需求 (NFR-N):
-  NFR-1: ...
-验收标准 (AC-N):
-  AC-1: [FR-1] ...
-明确不做:
-  - ...
-
-任务拆分规则 (Android 分层):
-  1. 基础设施 (Gradle/Manifest/依赖)
-  2. 数据层 (Model/Entity/DAO)
-  3. 业务层 (Repository/UseCase/ViewModel)
-  4. 表现层 (UI/Composable/Fragment)
-  5. 测试 (ViewModelTest/UITest)
-
-每个任务标注:
-  - TDD: required / skip (基础设施/测试/配置 skip, 其余 required)
-  - 关联需求: FR-N / AC-N
-  - 具体步骤 (可执行的 commit 级别)
-  - 涉及文件路径
+使用 Skill 工具调用 android-design-review，传入 Figma URL
+等待设计审查完成
+读取产出的设计规格文档
+将 <!-- DESIGN --> 注释块注入 plan 文件的相关任务
+为缺失的状态添加补充任务
 ```
-
-## Phase 2: CEO Review
-
-```
-检查:
-  1. 前提挑战: 需求假设是否成立?
-  2. PRD 审查: AC 是否可验证? FR 是否具体?
-  3. 平台约束: 是否忽略 Android 特性 (生命周期/配置变更)?
-  4. 范围砍伐: 最小可交付范围是什么?
-
-输出: 通过 / 需要调整 + 问题列表
-```
-
-## Phase 3: Design Review (按需)
-
-AskUserQuestion: "此 plan 涉及 UI 变更,是否执行设计审查?"
-- 是 → 调用 android-design-review skill
-- 否 → 跳过,继续 Phase 4
 
 ## Phase 4: Eng Review (subagent)
 
@@ -148,6 +152,42 @@ AskUserQuestion: "此 plan 涉及 UI 变更,是否执行设计审查?"
 生成文件:
   - docs/plans/<slug>.md
   - docs/plans/<slug>-status.json (write-once 审批凭证)
+```
 
-衔接: "Plan 已生成,可使用 /android-worktree-runner 执行"
+### 自动触发 Worktree Runner
+
+Plan 文件生成后，立即询问用户:
+
+AskUserQuestion: "Plan 已生成 (`docs/plans/<slug>.md`)。是否现在执行?"
+- A) 是，立即执行 (调用 /android-worktree-runner)
+- B) 稍后手动执行
+- C) 取消
+
+**如果选 A:**
+```
+1. 确认 git worktree 环境:
+   - 检查 git worktree 是否可用
+   - 检查 ./gradlew 是否可执行
+
+2. 调用 /android-worktree-runner:
+   - 传入 plan 文件路径
+   - 自动导入 plan 中的任务列表
+   - 开始逐任务执行
+
+3. 提示用户:
+   "Worktree Runner 已启动，将逐任务执行并自动验证。
+   可随时中断或查看状态。"
+```
+
+**如果选 B:**
+```
+保存执行状态到 docs/plans/<slug>-status.json:
+{
+  "status": "ready",
+  "plan_file": "docs/plans/<slug>.md",
+  "created_at": "<timestamp>",
+  "runner_invoked": false
+}
+
+提示: "可使用 /android-worktree-runner 手动执行"
 ```

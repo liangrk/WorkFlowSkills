@@ -21,6 +21,42 @@
 
 ## Figma MCP 依赖
 
+### 自动检测与连接流程
+
+**Phase 0 自动化流程:**
+
+```
+1. skill 启动后，自动运行 figma-mcp-check 脚本
+   ↓
+2. 检测 ~/.claude/settings.json 和项目 .claude/settings.json
+   ↓
+3. 判断配置状态:
+   ├─ 已配置 + API Key 有效 → 自动连接，继续执行
+   ├─ 已配置 + API Key 缺失/占位符 → 提示用户更新
+   └─ 未配置 → 提示用户安装配置
+   ↓
+4. 根据检测结果提供对应指引
+   ↓
+5. 用户确认完成后，尝试调用 get_figma_data 验证可用性
+   ↓
+6. 验证通过 → 继续 Phase 1
+   验证失败 → 返回对应步骤
+```
+
+**检测脚本 (figma-mcp-check) 功能:**
+- 自动搜索全局和项目级 settings.json
+- 检测 MCP server 名称匹配 (支持 `Framelink MCP for Figma` 和 `figma-developer-mcp`)
+- 检查 API Key 是否为占位符或真实值
+- 输出结构化 JSON 状态，供 skill 解析
+- 提供文本格式的安装指引
+
+**优势:**
+- ✅ 无需用户手动检查配置状态
+- ✅ 自动检测，减少出错概率
+- ✅ 根据检测结果提供针对性指引
+- ✅ 配置完成后可自动验证可用性
+- ✅ 支持跨平台 (Windows/macOS/Linux)
+
 ### 目标 MCP
 
 **包:** `figma-developer-mcp` (npm)

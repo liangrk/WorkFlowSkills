@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# figma-mcp-check — Figma MCP server detection and configuration helper
+# Checks if figma-developer-mcp is configured and accessible
+# Outputs structured JSON with status and configuration details
+set -euo pipefail
+
+# ── Output Format ──────────────────────────────────────────────────────
+case "${1:-}" in
+  --format) FORMAT="${2:-json}"; shift 2 ;;
+  json)     FORMAT="json"; shift ;;
+  text)     FORMAT="text"; shift ;;
+  *)        FORMAT="json" ;;
+esac
+
+# ── Helper Functions ───────────────────────────────────────────────────
+get_home_dir() {
+  if [ -n "${HOME:-}" ]; then
+    echo "$HOME"
+  elif [ -n "${USERPROFILE:-}" ]; then
+    echo "$USERPROFILE"
+  else
+    echo "${PWD%%/*}"
+  fi
+}
+
+HOME_DIR=$(get_home_dir)
+
+# Check for Claude settings files
+GLOBAL_SETTINGS="$HOME_DIR/.claude/settings.json"
+LOCAL_SETTINGS="$(pwd)/.claude/settings.json"
+
+# ── Detection: Figma MCP Configuration ─────────────────────────────────
+FIGMA_MCP_CONFIGURED="false"
+FIGMA_MCP_SERVER_NAME=""
+FIGMA_API_KEY_SET="false"
+FIGMA_MCP_COMMAND=""
+FIGMA_MCP_ARGS=""
+SETTINGS_FILE_USED=""
+
+# Search for MCP configuration
+check_mcp_config() {
+  local settings_file="$1"
+  local file_label="$2"
+  
+  if [ ! -f "$settings_file" ]; then
+    return
+  fi
+  
+  # Check for figma-developer-mcp or Framelink MCP for Figma
+  if grep -q "figma-developer-mcp\|Framelink MCP for Figma" "$settings_file" 2>/dev/null; then
+    FIGMA_MCP_CONFIGURED="true"
+    SETTINGS_FILE_USED="$settings_file ($file_label)"
+    
+    # Extract server name
+    if grep -q "Framelink MCP for Figma" "$settings_file" 2>/dev/null; then
+      FIGMA_MCP_SERVER_NAME="Framelink MCP for Figma"
+    elif grep -q "figma-developer-mcp" "$settings_file" 2>/dev/null; then
+      FIGMA_MCP_SERVER_NAME="figma-developer-mcp"
+    fi
+    
+    # Check if API key is set
+    if grep -q "figma-api-key=" "$settings_file" 2>/dev/null; then
+      # Check if it's a placeholder or actual key
+      if grep -q "figma-api-key=YOUR-KEY\|figma-api-key=YOUR_API_KEY\|figma-api-key=.*PLACEHOLDER" "$settings_file" 2>/dev/null; then
+        FIGMA_API_KEY_SET="false"
+      else
+        FIGMA_API_KEY_SET="true"
+      fi
+    fi
+    
+    # Extract command and args
+    FIGMA_MCP_COMMAND=$(grep -A5 "figma-developer-mcp\|Framelink MCP for Figma" "$settings_file" 2>/dev/null | grep '"command"' | head -1 | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || true)
+    FIGMA_MCP_ARGS=$(grep -A5 "figma-developer-mcp\|Framelink MCP for Figma" "$settings_file" 2>/dev/null | grep '"args"' | head -1 | sed 's/.*"args"[[:space:]]*:[[:space:]]*\[\(.*\)\].*/\1/' || true)
+  fi
+}
+
+# Check global settings first, then local
+check_mcp_config "$GLOBAL_SETTINGS" "global"
+if [ "$FIGMA_MCP_CONFIGURED" = "false" ]; then
+  check_mcp_config "$LOCAL_SETTINGS" "local"
+fi
+
+# ── Detection: npx availability ────────────────────────────────────────
+NPX_AVAILABLE="false"
+if command -v npx &>/dev/null; then
+  NPX_AVAILABLE="true"
+fi
+
+# ── Detection: Node.js availability ────────────────────────────────────
+NODE_AVAILABLE="false"
+if command -v node &>/dev/null; then
+  NODE_AVAILABLE="true"
+fi
+
+# ── Output ─────────────────────────────────────────────────────────────
+if [ "$FORMAT" = "text" ]; then
+  echo "=== Figma MCP Configuration Status ==="
+  echo "configured=$FIGMA_MCP_CONFIGURED"
+  echo "server_name=$FIGMA_MCP_SERVER_NAME"
+  echo "api_key_set=$FIGMA_API_KEY_SET"
+  echo "settings_file=$SETTINGS_FILE_USED"
+  echo "npx_available=$NPX_AVAILABLE"
+  echo "node_available=$NODE_AVAILABLE"
+  
+  if [ "$FIGMA_MCP_CONFIGURED" = "false" ]; then
+    echo ""
+    echo "=== Setup Instructions ==="
+    echo "1. Get Figma API Token:"
+    echo "   Figma → Account Settings → Security → Personal Access Tokens → Generate new token"
+    echo ""
+    echo "2. Configure MCP Server:"
+    echo "   Add to ~/.claude/settings.json:"
+    echo ""
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+      cat <<'EOF'
+   {
+     "mcpServers": {
+       "Framelink MCP for Figma": {
+         "command": "cmd",
+         "args": ["/c", "npx", "-y", "figma-developer-mcp", "--figma-api-key=YOUR-KEY", "--stdio"]
+       }
+     }
+   }
+EOF
+    else
+      cat <<'EOF'
+   {
+     "mcpServers": {
+       "Framelink MCP for Figma": {
+         "command": "npx",
+         "args": ["-y", "figma-developer-mcp", "--figma-api-key=YOUR-KEY", "--stdio"]
+       }
+     }
+   }
+EOF
+    fi
+  fi
+else
+  # JSON output
+  PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+  if [ -n "$PY" ]; then
+    "$PY" -c "
+import json
+import sys
+
+data = {
+    'configured': True if '${FIGMA_MCP_CONFIGURED}' == 'true' else False,
+    'server_name': '${FIGMA_MCP_SERVER_NAME}' or None,
+    'api_key_set': True if '${FIGMA_API_KEY_SET}' == 'true' else False,
+    'settings_file': '${SETTINGS_FILE_USED}' or None,
+    'npx_available': True if '${NPX_AVAILABLE}' == 'true' else False,
+    'node_available': True if '${NODE_AVAILABLE}' == 'true' else False,
+    'command': '${FIGMA_MCP_COMMAND}' or None,
+    'args': '${FIGMA_MCP_ARGS}' or None,
+}
+
+print(json.dumps(data, indent=2, ensure_ascii=False))
+"
+  else
+    # Fallback JSON without python
+    fb_server="${FIGMA_MCP_SERVER_NAME}"
+    [ -z "$fb_server" ] && fb_server="null"
+    fb_settings="${SETTINGS_FILE_USED}"
+    [ -z "$fb_settings" ] && fb_settings="null"
+    fb_command="${FIGMA_MCP_COMMAND}"
+    [ -z "$fb_command" ] && fb_command="null"
+    fb_args="${FIGMA_MCP_ARGS}"
+    [ -z "$fb_args" ] && fb_args="null"
+    
+    cat <<ENDJSON
+{
+  "configured": $([ "$FIGMA_MCP_CONFIGURED" = "true" ] && echo "true" || echo "false"),
+  "server_name": $([ -n "$fb_server" ] && echo "\"$fb_server\"" || echo "null"),
+  "api_key_set": $([ "$FIGMA_API_KEY_SET" = "true" ] && echo "true" || echo "false"),
+  "settings_file": $([ -n "$fb_settings" ] && echo "\"$fb_settings\"" || echo "null"),
+  "npx_available": $([ "$NPX_AVAILABLE" = "true" ] && echo "true" || echo "false"),
+  "node_available": $([ "$NODE_AVAILABLE" = "true" ] && echo "true" || echo "false"),
+  "command": $([ -n "$fb_command" ] && echo "\"$fb_command\"" || echo "null"),
+  "args": $([ -n "$fb_args" ] && echo "\"$fb_args\"" || echo "null")
+}
+ENDJSON
+  fi
+fi

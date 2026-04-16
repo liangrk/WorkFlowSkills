@@ -1,51 +1,64 @@
-#!/bin/bash
-# android-file-lock: Execute a command while holding a file lock
+#!/usr/bin/env bash
+# android-file-lock: Execute a command while holding a file lock (Cross-platform)
 # Usage: android-file-lock <lockfile> <command> [args...]
-# Exit code: 98 if lock cannot be acquired (caller should retry)
-#           1 on other errors
-#           passes through command exit code on success
 set -euo pipefail
 
 LOCKFILE="${1:?Usage: android-file-lock <lockfile> <command> [args...]}"
 shift
 CMD=("$@")
 
-if [ ${#CMD[@]} -eq 0 ]; then
-  echo "ERROR: no command specified" >&2
+# Use Python for atomic directory-based locking
+PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+
+if [ -z "$PYTHON" ]; then
+  echo "ERROR: python3/python not found, required for atomic locking" >&2
   exit 1
 fi
 
-# mkdir-based lock (works on Linux, macOS, and Windows git bash)
-LOCKDIR="${LOCKFILE}.lock.d"
-RETRIES=30
-INTERVAL=0.1
+"$PYTHON" -c "
+import os
+import sys
+import time
+import subprocess
 
-cleanup() {
-  if [ -n "${LOCKDIR:-}" ] && [ -d "$LOCKDIR" ]; then
-    rmdir "$LOCKDIR" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT
+lock_dir = sys.argv[1] + '.lock.d'
+pid_file = os.path.join(lock_dir, 'pid')
+retries = 30
+interval = 0.1
 
-for ((i = 1; i <= RETRIES; i++)); do
-  if mkdir "$LOCKDIR" 2>/dev/null; then
-    # Acquired lock — write PID for debugging
-    echo $$ > "$LOCKDIR/pid"
-    "${CMD[@]}"
-    exit $?
-  fi
-  # Check if the lock holder is still alive
-  HOLDER_PID=""
-  if [ -f "$LOCKDIR/pid" ]; then
-    HOLDER_PID=$(cat "$LOCKDIR/pid" 2>/dev/null || true)
-  fi
-  if [ -n "$HOLDER_PID" ] && ! kill -0 "$HOLDER_PID" 2>/dev/null; then
-    # Holder is dead — remove stale lock
-    rm -rf "$LOCKDIR"
-    continue
-  fi
-  sleep "$INTERVAL"
-done
+def acquire_lock():
+    for _ in range(retries):
+        try:
+            os.mkdir(lock_dir)
+            with open(pid_file, 'w') as f:
+                f.write(str(os.getpid()))
+            return True
+        except FileExistsError:
+            # Check if holder is still alive
+            try:
+                if os.path.exists(pid_file):
+                    with open(pid_file, 'r') as f:
+                        old_pid = int(f.read().strip())
+                    try:
+                        os.kill(old_pid, 0)
+                    except (OSError, ValueError):
+                        # Holder is dead, clean up
+                        import shutil
+                        shutil.rmtree(lock_dir, ignore_errors=True)
+                        continue
+            except Exception:
+                pass
+            time.sleep(interval)
+    return False
 
-echo "ERROR: could not acquire lock on $LOCKFILE (timeout 3s)" >&2
-exit 98
+if not acquire_lock():
+    print(f'ERROR: could not acquire lock on {sys.argv[1]} (timeout 3s)', file=sys.stderr)
+    sys.exit(98)
+
+try:
+    res = subprocess.run(sys.argv[2:])
+    sys.exit(res.returncode)
+finally:
+    import shutil
+    shutil.rmtree(lock_dir, ignore_errors=True)
+" "$LOCKFILE" "${CMD[@]}"

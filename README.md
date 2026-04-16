@@ -332,17 +332,21 @@ android-dumps/YYYYMMDD-HHMMSS/
 | 前置 | 检测项目技术栈、架构、构建配置 | 主 context |
 | Phase 1 | 需求拆分为结构化任务 | 主 context |
 | Phase 2 | CEO Review: 范围砍伐、平台约束 | 主 context |
-| Phase 3 | Design Review: Figma 设计规格 (按需加载) | Skill 调用 |
+| Phase 3 | Design Review: Figma 设计规格 (按需加载，**自动检测 MCP**) | Skill 调用 |
 | Phase 4 | Eng Review: 架构/Gradle/生命周期/测试/性能 | **subagent** |
 | Phase 5 | DX Review: 命名/复用/CI/文档 | **subagent** |
 | Phase 3.5 | 自省: 假设审计/决策回溯/盲点探测 | **subagent** (条件触发) |
 | 最终审批 | 展示决策统计，用户确认 | 主 context |
+| **自动触发** | **Plan 生成后询问是否执行 worktree-runner** | **主 context** |
 
 产出: `docs/plans/<slug>.md` (可执行 plan 文件)
 
 **上下文优化:** Phase 4-5 和 Phase 3.5 使用 subagent 模式，
 每个审查维度独立运行，主 context 仅接收紧凑结论。
 整体上下文消耗约 35%，即使加载 Figma 设计数据也不会溢出。
+
+**自动执行:** Plan 审批通过后，**自动询问是否立即执行** /android-worktree-runner，
+无需手动调用，提升开发效率。
 
 ### 3. 设计审查 (android-design-review, 按需)
 
@@ -378,6 +382,23 @@ android-dumps/YYYYMMDD-HHMMSS/
 - 逐任务顺序执行，每任务 commit 前自动验证 (build → lint → test)
 - 任务状态实时持久化到 `tasks.json`，支持 `/clear` 后恢复
 - 支持 `/clear` → `/android-worktree-runner` 无缝恢复
+
+**每个任务自动执行流程:**
+```
+实现 → 构建验证 → 提交 → code-review → TDD 验证 → 下一任务
+```
+
+**自动审查机制:**
+- ✅ 提交后立即触发 **code-review** (7 维度)
+- ✅ 审查通过后触发 **TDD 验证** (覆盖率门禁 ≥80%)
+- ✅ BLOCKER 问题提示修复
+- ✅ WARNING > 3 个时询问用户
+
+**Plan 完成后:**
+- 生成综合审查报告 (`docs/reviews/<slug>-final-report.md`)
+- 统计 BLOCKER/WARNING/INFO 数量
+- 显示 TDD 覆盖率数据
+- 提示是否修复问题或使用 /android-ship 提交
 
 执行完成后提供后续操作:
 - A) 保留 / B) 合并 / C) PR / D) 删除 worktree
@@ -656,3 +677,50 @@ tmpdir=$(mktemp -d) && git clone --depth 1 https://github.com/liangrk/WorkFlowSk
 ```
 
 > **注意：** 更新只覆盖 skill 定义文件和共享脚本，不会影响项目级运行时数据（tasks.json、checkpoint 等）。
+
+### 安装验证
+
+安装完成后，运行以下命令验证所有脚本是否正确安装：
+
+```bash
+# 检查核心 skill 目录
+echo "=== 已安装的 Skills ===" && ls -1 ~/.claude/skills/android-*
+
+# 检查关键脚本是否存在
+echo "=== 关键脚本验证 ==="
+[ -f ~/.claude/skills/android-dump/scripts/dump_android_ui.py ] && echo "✅ dump_android_ui.py" || echo "❌ dump_android_ui.py 缺失"
+[ -f ~/.claude/skills/android-shared/bin/android-scan-project ] && echo "✅ android-scan-project" || echo "❌ android-scan-project 缺失"
+[ -f ~/.claude/skills/android-shared/bin/android-detect-env ] && echo "✅ android-detect-env" || echo "❌ android-detect-env 缺失"
+```
+
+### 常见问题
+
+**Q: 提示找不到 `dump_android_ui.py` 脚本？**
+
+A: 这通常是因为安装时没有完整复制所有目录。解决方法：
+
+1. **重新运行完整安装命令**（见上方"全局安装"部分）
+
+2. **手动复制缺失的文件**：
+   ```bash
+   # 如果 android-dump 目录存在但缺少 scripts/
+   git clone --depth 1 https://github.com/liangrk/WorkFlowSkills.git /tmp/WorkFlowSkills
+   cp -r /tmp/WorkFlowSkills/.claude/skills/android-dump/scripts ~/.claude/skills/android-dump/
+   cp -r /tmp/WorkFlowSkills/.claude/skills/android-shared ~/.claude/skills/
+   rm -rf /tmp/WorkFlowSkills
+   ```
+
+3. **验证安装**：运行上方的"安装验证"命令
+
+**Q: 使用 `android-dump` 时提示脚本不存在？**
+
+A: 确保使用正确的相对路径。在项目中使用时，路径应该是：
+- 相对于项目根目录：`.claude/skills/android-dump/scripts/dump_android_ui.py`
+- 或使用绝对路径：`~/.claude/skills/android-dump/scripts/dump_android_ui.py`
+
+**Q: Windows 下 git bash 运行脚本有问题？**
+
+A: 确保：
+1. 使用 `python` 或 `python3` 命令运行脚本，而不是直接执行
+2. Python 路径已添加到系统环境变量
+3. ADB 已安装并可在命令行中访问

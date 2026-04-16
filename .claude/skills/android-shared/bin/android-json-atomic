@@ -1,10 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # android-json-atomic: Write JSON to a file atomically
 # Usage: echo '<json>' | android-json-atomic <filepath>
-# Reads JSON from stdin, validates with python, writes atomically via temp+rename.
 set -euo pipefail
 
-# Python3/python compatibility
 PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
 if [ -z "$PYTHON" ]; then
   echo "ERROR: python3/python not found" >&2
@@ -12,38 +10,58 @@ if [ -z "$PYTHON" ]; then
 fi
 
 TARGET="${1:?Usage: android-json-atomic <filepath>}"
+TARGET_DIR=$(dirname "$TARGET")
+mkdir -p "$TARGET_DIR"
 
-# Read full JSON from stdin
+# Read from stdin and validate
 INPUT=$(cat)
 
-# Validate JSON and pretty-print in one pass
-# NOTE: Use echo+pipe instead of <<< (here-string) for Windows Git Bash compatibility
-VALIDATED=$(printf '%s\n' "$INPUT" | "$PYTHON" -c "
-import sys, json
+# Atomic update logic
+"$PYTHON" -c "
+import sys
+import json
+import os
+import tempfile
+
+target = sys.argv[1]
+target_dir = os.path.dirname(target)
+
 try:
-    data = json.loads(sys.stdin.read())
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    # Read and validate JSON
+    raw_data = sys.stdin.read()
+    if not raw_data.strip():
+        print('ERROR: empty input', file=sys.stderr)
+        sys.exit(1)
+        
+    data = json.loads(raw_data)
+    validated = json.dumps(data, indent=2, ensure_ascii=False)
+    
+    # Write to temp file in the same directory
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix='.atomic-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(validated)
+        
+        # Atomic rename
+        if os.path.exists(target):
+            # On Windows, os.rename fails if target exists
+            if os.name == 'nt':
+                os.replace(tmp_path, target)
+            else:
+                os.rename(tmp_path, target)
+        else:
+            os.rename(tmp_path, target)
+            
+        print(f'OK: {target} written atomically')
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise e
+        
 except json.JSONDecodeError as e:
-    print('ERROR: invalid JSON: {}'.format(e), file=sys.stderr)
+    print(f'ERROR: invalid JSON: {e}', file=sys.stderr)
     sys.exit(1)
-")
-
-# Determine temp file in same directory (ensures same filesystem for atomic rename)
-TARGET_DIR=$(dirname "$TARGET")
-BASENAME=$(basename "$TARGET")
-# Use mktemp for cross-platform temp file generation (avoids $$ issues on Windows)
-TMPFILE=$(mktemp "${TARGET_DIR}/.${BASENAME}.tmp.XXXXXX")
-
-# Write validated JSON to temp file
-printf '%s\n' "$VALIDATED" > "$TMPFILE"
-
-# Atomic rename (same filesystem guaranteed)
-if mv "$TMPFILE" "$TARGET" 2>/dev/null; then
-  echo "OK: $TARGET written atomically"
-else
-  # Fallback: direct write (may not be atomic but better than losing data)
-  echo "WARNING: atomic rename failed, falling back to direct write" >&2
-  printf '%s\n' "$VALIDATED" > "$TARGET"
-  rm -f "$TMPFILE" 2>/dev/null || true
-  echo "OK: $TARGET written (non-atomic fallback)"
-fi
+except Exception as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+" "$TARGET" <<< "$INPUT"

@@ -17,19 +17,37 @@ _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 优先使用项目根下的 skills (返回不含 /bin 的路径)
 if [ -n "$_PROJECT_ROOT" ] && [ -d "$_PROJECT_ROOT/.claude/skills/android-shared/bin" ]; then
-  echo "$_PROJECT_ROOT/.claude/skills/android-shared"
+  SHARED_BIN="$_PROJECT_ROOT/.claude/skills/android-shared"
+  echo "$SHARED_BIN"
+  # 添加 bin 到 PATH
+  case ":${PATH:-}:" in
+    *:"$SHARED_BIN/bin":*) ;;
+    *) export PATH="$SHARED_BIN/bin:$PATH" ;;
+  esac
   exit 0
 fi
 
 # 其次使用脚本实际位置 ( $_SCRIPT_DIR 本身就是 bin 目录,需要返回上级)
 if [ -d "$_SCRIPT_DIR" ]; then
-  echo "$(dirname "$_SCRIPT_DIR")"
+  SHARED_BIN="$(dirname "$_SCRIPT_DIR")"
+  echo "$SHARED_BIN"
+  # 添加 bin 到 PATH
+  case ":${PATH:-}:" in
+    *:"$SHARED_BIN/bin":*) ;;
+    *) export PATH="$SHARED_BIN/bin:$PATH" ;;
+  esac
   exit 0
 fi
 
 # 最后回退到用户目录 (返回不含 /bin 的路径)
 if [ -d "$HOME/.claude/skills/android-shared/bin" ]; then
-  echo "$HOME/.claude/skills/android-shared"
+  SHARED_BIN="$HOME/.claude/skills/android-shared"
+  echo "$SHARED_BIN"
+  # 添加 bin 到 PATH
+  case ":${PATH:-}:" in
+    *:"$SHARED_BIN/bin":*) ;;
+    *) export PATH="$SHARED_BIN/bin:$PATH" ;;
+  esac
   exit 0
 fi
 

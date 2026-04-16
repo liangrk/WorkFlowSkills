@@ -8,14 +8,26 @@ description: |
 
 **调用:** `/android-design-review <figma-url>`
 
-## Phase 0: 环境
+## Phase 0: Figma MCP 自动检测
+
+### 检测与处理
 
 ```bash
 SHARED_BIN=$(bash android-resolve-path 2>/dev/null || true)
-# SHARED_BIN resolved dynamically
-# fallback handled
-bash "$SHARED_BIN/bin/android-learnings-bootstrap" 2>/dev/null || true
+[ -n "$SHARED_BIN" ] && export PATH="$SHARED_BIN/bin:$PATH"
+FIGMA_STATUS=$(bash "$SHARED_BIN/bin/figma-mcp-check" --format json 2>/dev/null || echo '{"configured":false}')
 ```
+
+**根据 FIGMA_STATUS 结果处理:**
+
+| 状态 | 行为 |
+|------|------|
+| `configured: true` + `api_key_set: true` | 跳到 Phase 1 |
+| `configured: true` + `api_key_set: false` | 提示更新 API Key，参考 `figma-mcp-setup` |
+| `configured: false` | 提示安装配置，参考 `figma-mcp-setup` |
+
+**需要配置时:** AskUserQuestion 提供选项，引导查看配置指引文档。
+**配置后验证:** 尝试调用 `get_figma_data`，成功则继续，失败则重试或提示。
 
 ## Phase 1: 设计稿获取
 

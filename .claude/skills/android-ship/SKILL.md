@@ -35,14 +35,72 @@ CHANGED=$(git diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null)
 
 ## Phase 2: 质量门禁
 
-| 门禁 | 检查 |
-|------|------|
-| QA | `docs/reviews/${CURRENT_BRANCH}-qa-report.md` 无 BLOCKER |
-| code-review | `docs/reviews/${CURRENT_BRANCH}-code-review.md` 无未解决 BLOCKER |
-| build | `docs/reviews/${CURRENT_BRANCH}-build-report.md` 构建成功 |
-| TDD | tasks.json 中 TDD 任务已执行 |
+### 门禁检查流程
 
-任一门禁未通过 → AskUserQuestion: 是否继续?
+```bash
+# 1. code-review BLOCKER 检查 (必须解析文件内容)
+REVIEW_FILE="docs/reviews/${CURRENT_BRANCH}-code-review.md"
+if [ -f "$REVIEW_FILE" ]; then
+  # 解析 BLOCKER 数量 (检查是否已标记为 resolved)
+  BLOCKER_COUNT=$(grep -c "🔴 BLOCKER" "$REVIEW_FILE" 2>/dev/null || echo 0)
+  RESOLVED_COUNT=$(grep -c "🔴 BLOCKER.*resolved\|🔴 BLOCKER.*已修复\|BLOCKER.*✅" "$REVIEW_FILE" 2>/dev/null || echo 0)
+  UNRESOLVED_BLOCKER=$((BLOCKER_COUNT - RESOLVED_COUNT))
+  REVIEW_MISSING=0
+else
+  # H1 修复: 审查文件缺失视为严重风险
+  UNRESOLVED_BLOCKER=1
+  REVIEW_MISSING=1
+fi
+
+# 2. TDD 覆盖率检查 (M5 修复)
+TDD_STATUS=$(python3 -c "
+import json, sys
+try:
+    tasks = json.load(open('.claude/android-worktree-runner/tasks.json'))
+    # 检查是否有任务处于 completed-with-tdd-issues 状态
+    issues = sum(1 for t in tasks if t.get('status') == 'completed-with-tdd-issues')
+    print('has_issues' if issues > 0 else 'ok')
+except: print('ok')
+" 2>/dev/null || echo "ok")
+
+# 3. QA BLOCKER 检查
+QA_FILE="docs/reviews/${CURRENT_BRANCH}-qa-report.md"
+QA_BLOCKER=$([ -f "$QA_FILE" ] && grep -c "🔴 BLOCKER" "$QA_FILE" 2>/dev/null || echo 0)
+```
+
+### 门禁决策表
+
+| 门禁 | 条件 | 行为 |
+|------|------|------|
+| code-review | `UNRESOLVED_BLOCKER > 0` | 🔴 阻塞 (若 `REVIEW_MISSING=1` 则提示未做审查) |
+| QA | `QA_BLOCKER > 0` | 🔴 阻塞，提示修复或记录豁免决策 |
+| build | 构建失败 | 🔴 阻塞 |
+| TDD | `TDD_STATUS = has_issues` | 🟡 警告，提醒存在覆盖率不足的任务，需用户确认 |
+
+### 阻塞处理
+
+```bash
+if [ $UNRESOLVED_BLOCKER -gt 0 ] || [ $QA_BLOCKER -gt 0 ] || [ "$TDD_STATUS" = "has_issues" ]; then
+  MSG="质量门禁未通过:"
+  [ $REVIEW_MISSING -eq 1 ] && MSG="$MSG\n- 🔴 缺少代码审查文件"
+  [ $UNRESOLVED_BLOCKER -gt 0 ] && [ $REVIEW_MISSING -eq 0 ] && MSG="$MSG\n- 🔴 未解决 BLOCKER: $UNRESOLVED_BLOCKER"
+  [ $QA_BLOCKER -gt 0 ] && MSG="$MSG\n- 🔴 QA BLOCKER: $QA_BLOCKER"
+  [ "$TDD_STATUS" = "has_issues" ] && MSG="$MSG\n- 🟡 部分任务 TDD 覆盖率未达标"
+
+  AskUserQuestion: "$MSG\n\n是否继续?"
+  - A) 修复后再提交 (推荐)
+  - B) 记录豁免决策并继续 (需说明原因)
+  - C) 取消
+
+  若选 B:
+    写入 docs/reviews/${CURRENT_BRANCH}-ship-decision.md:
+      决策时间: $(date -Iseconds)
+      未解决 BLOCKER: $UNRESOLVED_BLOCKER
+      QA BLOCKER: $QA_BLOCKER
+      豁免原因: <用户输入>
+      决策者: <用户名>
+fi
+```
 
 ## Phase 3: 提交 + PR
 
