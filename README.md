@@ -21,6 +21,17 @@
 - 非关键说明放到 README/脚本 `--help`，避免堆进高频 SKILL
 - 变更后建议执行一次词数盘点，优先优化 Top N 大文件
 
+## Skill YAML 校验（防止安装失败）
+
+提交前建议执行：
+
+```bash
+python tools/validate_skills.py --root .
+```
+
+仓库已内置 GitHub Actions 校验（`.github/workflows/validate-skills.yml`），
+若 `SKILL.md` frontmatter 非法（例如 `args: [..] [..]` 这类写法），CI 会直接失败。
+
 ## Skill 集合
 
 | Skill | 类型 | 说明 |

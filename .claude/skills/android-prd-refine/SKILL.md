@@ -8,7 +8,10 @@ voice-triggers:
   - "prd refine"
   - "需求收敛"
 invocation: /android-prd-refine
-args: [<raw-requirement-file>] [--from-thinking <file>] [--to-plan]
+args:
+  - "<raw-requirement-file>"
+  - "--from-thinking <file>"
+  - "--to-plan"
 ---
 
 # Android PRD Refine
