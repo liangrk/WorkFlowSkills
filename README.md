@@ -2,6 +2,25 @@
 
 一套 Claude Code skill 工具链，覆盖从开发到日常工作的完整生命周期。
 
+## Skill 瘦身记录 (2026-04-23)
+
+目标: 在不改变行为门禁的前提下，减少常驻上下文体积。
+
+本轮已压缩:
+- `.claude/skills/android-worktree-runner/SKILL.md`
+- `.claude/skills/android-qa/SKILL.md`
+- `.claude/skills/android-fix/SKILL.md`
+
+执行策略:
+- 保留 Phase 结构、阈值、依赖、交接关系
+- 保留关键命令与强制门禁（如 `--no-daemon`、构建/lint/test 顺序）
+- 删除重复示例、长叙事、可外推说明
+
+维护约束:
+- 新增内容优先“清单化 + 最小示例”
+- 非关键说明放到 README/脚本 `--help`，避免堆进高频 SKILL
+- 变更后建议执行一次词数盘点，优先优化 Top N 大文件
+
 ## Skill 集合
 
 | Skill | 类型 | 说明 |
@@ -123,6 +142,22 @@ python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.exam
 
 # 指定输出目录
 python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.example.app --output ./dumps
+
+# 自动化模式（不打开浏览器，仅产出 JSON）
+RUN_ID=$(bash .claude/skills/android-shared/bin/android-run-id --ensure 2>/dev/null || echo run-local)
+python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.example.app --run-id "$RUN_ID" --json-only --no-open --compact --max-ids 30 --max-text 15
+
+# 基线对比（生成 ui_diff.json）
+python .claude/skills/android-dump/scripts/dump_android_ui.py --package com.example.app --run-id "$RUN_ID" --json-only --no-open --compact --baseline ./android-dumps/baseline
+
+# 产物校验（schema_version/run_id/关键字段）
+bash .claude/skills/android-shared/bin/android-artifact-validate <dump-dir>
+
+# tasks.json 元数据修复（worktree-runner 可在写入前调用）
+bash .claude/skills/android-shared/bin/android-tasks-meta --file .claude/android-worktree-runner/tasks.json --run-id "$RUN_ID" --init-if-missing
+
+# tasks.json 元数据校验门禁
+bash .claude/skills/android-shared/bin/android-tasks-meta --file .claude/android-worktree-runner/tasks.json --validate-only
 ```
 
 ### 输出文件
@@ -132,9 +167,16 @@ android-dumps/YYYYMMDD-HHMMSS/
 ├── ui_hierarchy.xml      # 原始 UI 层次 XML (仅目标 App)
 ├── screenshot.png        # 屏幕截图
 ├── analysis.json         # 结构化分析 (元素 ID、文本、类型分布)
+├── screen_fingerprint.json # 机器可读屏幕指纹 (用于回归比对)
+├── ui_diff.json          # 与 baseline 的差异 (可选)
+├── llm_summary.json      # 给模型读取的精简摘要（优先）
 ├── tree_view.html        # 交互式可视化树 (可搜索/展开/复制 ID)
 └── report.txt            # 文本摘要报告
 ```
+
+> 在自动化/大模型分析场景，建议启用 `--compact`，以降低 token 与上下文体积。
+> 建议模型优先读取 `llm_summary.json`，仅在需要时再读取 `ui_diff.json` / `analysis.json`。
+> dump 产物统一包含 `schema_version`、`artifact_type`、`run_id`，用于跨 skill 追踪。
 
 ### 功能特性
 
@@ -431,13 +473,14 @@ android-dumps/YYYYMMDD-HHMMSS/
 /android-qa regression
 ```
 
-六层覆盖 (静态分析、构建测试、性能基准、无障碍、设备测试、PRD验收):
+七层覆盖 (静态分析、构建测试、性能基准、无障碍、设备测试、UI Dump Gate、PRD验收):
 1. **静态分析** (无需设备): 代码模式、资源完整性、Manifest、ProGuard
 2. **构建+单元测试** (无需设备): assembleDebug、lintDebug、testDebugUnitTest
 3. **性能基准** (无需设备): 关键性能指标回归检测
 4. **无障碍检查** (无需设备): a11y 合规性扫描
 5. **设备测试** (需要 adb): 安装 APK、运行 UI 验证
-6. **PRD 验收** (逻辑层): 对照验收标准逐条验证需求覆盖度
+6. **UI Dump Gate** (需要 adb): dump 当前页面并与 baseline 比对，输出 `ui_diff.json` 进行 UI 回归门禁
+7. **PRD 验收** (逻辑层): 对照验收标准逐条验证需求覆盖度
 
 包含修复循环: 发现 bug 后自动修复 → 重新验证，最多 3 轮。
 
@@ -724,3 +767,46 @@ A: 确保：
 1. 使用 `python` 或 `python3` 命令运行脚本，而不是直接执行
 2. Python 路径已添加到系统环境变量
 3. ADB 已安装并可在命令行中访问
+
+**Q: Windows 经常提示命令/工具找不到？**
+
+A: 先跑工具体检，再走 skill 流程：
+
+```cmd
+E:\ldmnq_project\selfp\WorkFlowSkills\.claude\skills\android-shared\bin\android-tool-doctor.bat
+E:\ldmnq_project\selfp\WorkFlowSkills\.claude\skills\android-shared\bin\android-tasks-meta.bat --file .claude\android-worktree-runner\tasks.json --init-if-missing
+```
+
+在 bash 环境可用：
+
+```bash
+bash .claude/skills/android-shared/bin/android-tool-doctor
+```
+
+## 自动串联流水线（ClaudeCode/Codex 通用）
+
+新增统一调度器：
+- Bash: `bash .claude/skills/android-shared/bin/android-pipeline`
+- Windows: `.claude\\skills\\android-shared\\bin\\android-pipeline.bat`
+
+默认步骤：
+`doctor -> autoplan -> runner -> code_review -> qa -> ship`
+
+> `doctor` 有内置默认命令，其他步骤通过“命令钩子”接入，便于 ClaudeCode/Codex 复用同一编排。
+
+### 钩子配置（推荐）
+
+在项目下创建：
+`.claude/workflow/hooks/`
+
+- Linux/macOS: `autoplan.sh`, `runner.sh`, `code_review.sh`, `qa.sh`, `ship.sh`
+- Windows: `autoplan.bat`, `runner.bat`, `code_review.bat`, `qa.bat`, `ship.bat`
+
+调度器会自动按平台执行对应钩子脚本。
+
+也可用环境变量：
+- `ANDROID_PIPELINE_AUTOPLAN_CMD`
+- `ANDROID_PIPELINE_RUNNER_CMD`
+- `ANDROID_PIPELINE_CODE_REVIEW_CMD`
+- `ANDROID_PIPELINE_QA_CMD`
+- `ANDROID_PIPELINE_SHIP_CMD`
