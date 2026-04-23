@@ -8,7 +8,9 @@ voice-triggers:
   - "修复结论"
   - "修复问题"
 invocation: /android-fix
-args: [<file>] [--resume <plan-file>]
+args:
+  - "<file>"
+  - "--resume <plan-file>"
 ---
 
 # Android Fix
